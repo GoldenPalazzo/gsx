@@ -1,4 +1,5 @@
 mod cpu;
+mod memory;
 use std::io::{self, Write};
 
 fn wait_for_enter() {
