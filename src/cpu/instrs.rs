@@ -44,12 +44,10 @@ pub enum CopInstruction {
     CTC { rt: u8, rd: u8 },
     BCF { imm: u16 },
     BCT { imm: u16 },
-}
+    LWC { rs: u8, rt: u8, imm: u16 },
+    SWC { rs: u8, rt: u8, imm: u16 },
 
-#[allow(clippy::upper_case_acronyms, dead_code)]
-#[derive(Debug)]
-pub enum Cop0Instruction {
-    Common(CopInstruction),
+    // Only COP0
     RFE,
     TLBR,
     TLBWI,
@@ -78,10 +76,7 @@ pub enum Instruction {
     ORI { rs: u8, rt: u8, imm: u16 },
     XORI { rs: u8, rt: u8, imm: u16 },
     LUI { rt: u8, imm: u16 },
-    COP0(Cop0Instruction),
-    COP1(CopInstruction),
-    COP2(CopInstruction),
-    COP3(CopInstruction),
+    COP { n: u8, instr: CopInstruction },
     LB { rs: u8, rt: u8, imm: u16 },
     LH { rs: u8, rt: u8, imm: u16 },
     LWL { rs: u8, rt: u8, imm: u16 },
@@ -94,14 +89,6 @@ pub enum Instruction {
     SWL { rs: u8, rt: u8, imm: u16 },
     SW { rs: u8, rt: u8, imm: u16 },
     SWR { rs: u8, rt: u8, imm: u16 },
-    LWC0 { rs: u8, rt: u8, imm: u16 },
-    LWC1 { rs: u8, rt: u8, imm: u16 },
-    LWC2 { rs: u8, rt: u8, imm: u16 },
-    LWC3 { rs: u8, rt: u8, imm: u16 },
-    SWC0 { rs: u8, rt: u8, imm: u16 },
-    SWC1 { rs: u8, rt: u8, imm: u16 },
-    SWC2 { rs: u8, rt: u8, imm: u16 },
-    SWC3 { rs: u8, rt: u8, imm: u16 },
 
     // Special instructions
     SLL { rt: u8, rd: u8, imm: u8 },
@@ -173,7 +160,7 @@ impl Instruction {
             },
             0x20..=0x27 => Self::decode_load(opcode),
             0x28..=0x2f => Self::decode_store(opcode),
-            0x10..=0x1f | 0x30..=0x3f => todo!("Coprocessor instruction not decoded"),
+            0x10..=0x1f | 0x30..=0x3f => Self::decode_cop(opcode),
             _ => Self::ILLEGAL,
         }
     }
@@ -434,6 +421,92 @@ impl Instruction {
                 imm: get_imm16(opcode),
             },
             _ => Self::ILLEGAL,
+        }
+    }
+
+    #[inline(always)]
+    fn decode_cop(opcode: u32) -> Self {
+        let rs = get_rs(opcode);
+        let n = get_primary(opcode) & 3;
+        match get_primary(opcode) & 0x38 {
+            0x10 => match rs {
+                0 => Instruction::COP {
+                    n,
+                    instr: CopInstruction::MFC {
+                        rt: get_rt(opcode),
+                        rd: get_rd(opcode),
+                    },
+                },
+                2 => Instruction::COP {
+                    n,
+                    instr: CopInstruction::CFC {
+                        rt: get_rt(opcode),
+                        rd: get_rd(opcode),
+                    },
+                },
+                4 => Instruction::COP {
+                    n,
+                    instr: CopInstruction::MTC {
+                        rt: get_rt(opcode),
+                        rd: get_rd(opcode),
+                    },
+                },
+                6 => Instruction::COP {
+                    n,
+                    instr: CopInstruction::CTC {
+                        rt: get_rt(opcode),
+                        rd: get_rd(opcode),
+                    },
+                },
+                8 => Instruction::COP {
+                    n,
+                    instr: match get_rt(opcode) {
+                        0 => CopInstruction::BCF {
+                            imm: get_imm16(opcode),
+                        },
+                        1 => CopInstruction::BCT {
+                            imm: get_imm16(opcode),
+                        },
+                        _ => unreachable!(),
+                    },
+                },
+                0x10..=0x1f => Instruction::COP {
+                    n,
+                    instr: if n == 0 {
+                        match get_secondary(opcode) {
+                            1 => CopInstruction::TLBR,
+                            2 => CopInstruction::TLBWI,
+                            6 => CopInstruction::TLBWR,
+                            8 => CopInstruction::TLBP,
+                            16 => CopInstruction::RFE,
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        todo!("Not implemented COPn imm25")
+                    },
+                },
+                _ => unreachable!(),
+            },
+            0x30 => Instruction::COP {
+                n,
+                instr: CopInstruction::LWC {
+                    rs,
+                    rt: get_rt(opcode),
+                    imm: get_imm16(opcode),
+                },
+            },
+            0x38 => Instruction::COP {
+                n,
+                instr: CopInstruction::SWC {
+                    rs,
+                    rt: get_rt(opcode),
+                    imm: get_imm16(opcode),
+                },
+            },
+            _ => unreachable!(
+                "Instruction {:08X} ({:032b}) not recognized",
+                opcode, opcode
+            ),
         }
     }
 }
