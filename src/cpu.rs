@@ -1,5 +1,7 @@
 mod instrs;
 
+use std::fmt;
+
 use super::memory::MemoryBus;
 use instrs::Instruction;
 
@@ -45,7 +47,8 @@ impl Cpu {
         // ]);
         let opcode = mem.read_word(self.pc);
         let disasm = Instruction::decode(opcode);
-        println!("{:08X} {} ({:?})", self.pc, opcode, disasm);
+        println!("{}", self);
+        println!("0x{:08X}: {:08X} -> {:?} ", self.pc, opcode, disasm);
         self.execute(disasm, mem);
 
         if let Some((reg, val)) = pending {
@@ -329,5 +332,33 @@ impl Cpu {
 impl Default for Cpu {
     fn default() -> Self {
         Self::new(0xbfc0_0000)
+    }
+}
+
+impl fmt::Display for Cpu {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        const REG_NAMES: [&str; 32] = [
+            "zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3", "t4", "t5",
+            "t6", "t7", "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "t8", "t9", "k0", "k1",
+            "gp", "sp", "fp", "ra",
+        ];
+        writeln!(
+            f,
+            "PC: {:08X}   HI: {:08X}   LO: {:08X}",
+            self.pc, self.hi, self.lo
+        )?;
+
+        for (i, reg) in self.gprs.iter().enumerate() {
+            write!(f, "R{:02}({:>4}): {:08X}   ", i, REG_NAMES[i], reg)?;
+            if (i + 1) % 4 == 0 {
+                writeln!(f)?;
+            }
+        }
+
+        if let Some((reg, val)) = self.load_delay {
+            writeln!(f, "Load Delay Slot -> R{:02} = {:08X}", reg, val)?;
+        }
+
+        Ok(())
     }
 }
