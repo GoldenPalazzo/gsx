@@ -35,6 +35,13 @@ impl MemoryBus {
         }
     }
 
+    pub fn with_bios(bios: &[u8]) -> Self {
+        assert_eq!(bios.len(), BIOS_SIZE as usize, "BIOS has to be 512 KB");
+        let mut bus = Self::new();
+        bus.bios_rom.copy_from_slice(bios);
+        bus
+    }
+
     pub fn read_byte(&self, addr: u32) -> u8 {
         let addr = Self::mask_address(addr);
         match addr {

@@ -9,8 +9,11 @@ fn wait_for_enter() {
 }
 
 fn main() {
+    let bios = std::fs::read("SCPH1001.BIN").expect("BIOS SCPH1001.BIN not found!");
+    assert_eq!(bios.len(), 512 * 1024, "BIOS has to be 512 KB");
+
     let mut cpu = crate::cpu::Cpu::default();
-    let mut mem = crate::memory::MemoryBus::new();
+    let mut mem = crate::memory::MemoryBus::with_bios(&bios);
 
     loop {
         wait_for_enter();
