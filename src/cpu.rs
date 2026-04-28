@@ -15,6 +15,8 @@ enum Exception {
     Breakpoint(u32),
 }
 
+const RETURN_ADDR: u8 = 31;
+
 pub struct Cpu {
     gprs: [u32; 32],
     pc: u32,
@@ -22,6 +24,7 @@ pub struct Cpu {
     lo: u32,
 
     load_delay: Option<(u8, u32)>,
+    jump_delay: Option<u32>,
 }
 
 impl Cpu {
@@ -33,11 +36,13 @@ impl Cpu {
             lo: 0,
 
             load_delay: None,
+            jump_delay: None,
         }
     }
 
     pub fn step(&mut self, mem: &mut MemoryBus) {
-        let pending = self.load_delay.take();
+        let pending_load = self.load_delay.take();
+        let pending_jump = self.jump_delay.take();
 
         // let opcode = u32::from_le_bytes([
         //     mem[self.pc as usize],
@@ -51,10 +56,15 @@ impl Cpu {
         println!("0x{:08X}: {:08X} -> {:?} ", self.pc, opcode, disasm);
         self.execute(disasm, mem);
 
-        if let Some((reg, val)) = pending {
+        if let Some((reg, val)) = pending_load {
             self.write_reg(reg, val);
         }
-        self.pc = self.pc.wrapping_add(4);
+
+        if let Some(pc) = pending_jump {
+            self.pc = pc;
+        } else {
+            self.pc = self.pc.wrapping_add(4);
+        }
     }
 
     fn read_reg(&self, idx: u8) -> u32 {
@@ -310,6 +320,94 @@ impl Cpu {
                     _ => unreachable!(),
                 };
                 mem.write_word(aligned, val);
+            }
+            Instruction::J { imm } => {
+                self.jump_delay = Some((self.pc & 0xf000_0000) + (imm * 4));
+            }
+            Instruction::JAL { imm } => {
+                self.jump_delay = Some((self.pc & 0xf000_0000) + (imm * 4));
+                self.write_reg(RETURN_ADDR, self.pc.wrapping_add(8));
+            }
+            Instruction::JR { rs } => {
+                self.jump_delay = Some(self.read_reg(rs));
+            }
+            Instruction::JALR { rs, rd } => {
+                self.jump_delay = Some(self.read_reg(rs));
+                self.write_reg(rd, self.pc.wrapping_add(8));
+            }
+            Instruction::BEQ { rs, rt, imm } => {
+                if self.read_reg(rs) == self.read_reg(rt) {
+                    self.jump_delay = Some(
+                        self.pc
+                            .wrapping_add(4)
+                            .wrapping_add(imm as i16 as i32 as u32),
+                    )
+                }
+            }
+            Instruction::BNE { rs, rt, imm } => {
+                if self.read_reg(rs) != self.read_reg(rt) {
+                    self.jump_delay = Some(
+                        self.pc
+                            .wrapping_add(4)
+                            .wrapping_add(imm as i16 as i32 as u32),
+                    )
+                }
+            }
+            Instruction::BLTZ { rs, imm } => {
+                if (self.read_reg(rs) as i32) < 0 {
+                    self.jump_delay = Some(
+                        self.pc
+                            .wrapping_add(4)
+                            .wrapping_add(imm as i16 as i32 as u32),
+                    )
+                }
+            }
+            Instruction::BGEZ { rs, imm } => {
+                if (self.read_reg(rs) as i32) >= 0 {
+                    self.jump_delay = Some(
+                        self.pc
+                            .wrapping_add(4)
+                            .wrapping_add(imm as i16 as i32 as u32),
+                    )
+                }
+            }
+            Instruction::BGTZ { rs, imm } => {
+                if (self.read_reg(rs) as i32) > 0 {
+                    self.jump_delay = Some(
+                        self.pc
+                            .wrapping_add(4)
+                            .wrapping_add(imm as i16 as i32 as u32),
+                    )
+                }
+            }
+            Instruction::BLEZ { rs, imm } => {
+                if (self.read_reg(rs) as i32) <= 0 {
+                    self.jump_delay = Some(
+                        self.pc
+                            .wrapping_add(4)
+                            .wrapping_add(imm as i16 as i32 as u32),
+                    )
+                }
+            }
+            Instruction::BLTZAL { rs, imm } => {
+                self.write_reg(RETURN_ADDR, self.pc.wrapping_add(8));
+                if (self.read_reg(rs) as i32) < 0 {
+                    self.jump_delay = Some(
+                        self.pc
+                            .wrapping_add(4)
+                            .wrapping_add(imm as i16 as i32 as u32),
+                    )
+                }
+            }
+            Instruction::BGEZAL { rs, imm } => {
+                self.write_reg(RETURN_ADDR, self.pc.wrapping_add(8));
+                if (self.read_reg(rs) as i32) >= 0 {
+                    self.jump_delay = Some(
+                        self.pc
+                            .wrapping_add(4)
+                            .wrapping_add(imm as i16 as i32 as u32),
+                    )
+                }
             }
 
             Instruction::SYSCALL { comment } => {
