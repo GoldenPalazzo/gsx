@@ -3,12 +3,19 @@ const RAM_SIZE: u32 = 2 * 1024 * 1024;
 const RAM_END: u32 = RAM_BEGIN + RAM_SIZE - 1;
 const RAM_MIRROR_MASK: u32 = RAM_SIZE - 1;
 const RAM_MIRROR_END: u32 = (RAM_BEGIN + RAM_SIZE * 4) - 1;
+
 const BIOS_BEGIN: u32 = 0x1FC0_0000;
 const BIOS_SIZE: u32 = 512 * 1024;
 const BIOS_END: u32 = BIOS_BEGIN + BIOS_SIZE - 1;
+
 const SCRATCH_BEGIN: u32 = 0x1F80_0000;
 const SCRATCH_SIZE: u32 = 1024;
 const SCRATCH_END: u32 = SCRATCH_BEGIN + SCRATCH_SIZE - 1;
+
+const IOPORTS_BEGIN: u32 = 0x1F801000;
+const IOPORTS_SIZE: u32 = 8 * 1024;
+const IOPORTS_END: u32 = IOPORTS_BEGIN + IOPORTS_SIZE - 1;
+
 const CACHECTL_BEGIN: u32 = 0xFFFE_0000;
 const CACHECTL_SIZE: u32 = 512;
 const CACHECTL_END: u32 = CACHECTL_BEGIN + CACHECTL_SIZE - 1;
@@ -34,6 +41,7 @@ impl MemoryBus {
             RAM_BEGIN..=RAM_MIRROR_END => self.main_ram[(addr & RAM_MIRROR_MASK) as usize],
             BIOS_BEGIN..=BIOS_END => self.bios_rom[(addr - BIOS_BEGIN) as usize],
             SCRATCH_BEGIN..=SCRATCH_END => self.scratchpad[(addr - SCRATCH_BEGIN) as usize],
+            IOPORTS_BEGIN..=IOPORTS_END => 0xff,
             CACHECTL_BEGIN..=CACHECTL_END => 0xff,
             _ => todo!("Address {:08X} not mapped yet", addr),
         }
@@ -58,6 +66,7 @@ impl MemoryBus {
             RAM_BEGIN..=RAM_MIRROR_END => self.main_ram[(addr & RAM_MIRROR_MASK) as usize] = val,
             BIOS_BEGIN..=BIOS_END => {}
             SCRATCH_BEGIN..=SCRATCH_END => self.scratchpad[(addr - SCRATCH_BEGIN) as usize] = val,
+            IOPORTS_BEGIN..=IOPORTS_END => {}
             CACHECTL_BEGIN..=CACHECTL_END => {}
             _ => todo!("Address {:08X} not mapped yet", addr),
         }
