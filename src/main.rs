@@ -9,11 +9,11 @@ fn wait_for_enter() {
 }
 
 fn main() {
-    let buf = vec![0u8; 0x2000];
-    let cpu = crate::cpu::Cpu::new();
+    let mut cpu = crate::cpu::Cpu::default();
+    let mut mem = crate::memory::MemoryBus::new();
 
     loop {
         wait_for_enter();
-        cpu.step(&buf);
+        cpu.step(&mut mem);
     }
 }

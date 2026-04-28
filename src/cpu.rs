@@ -23,10 +23,10 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new() -> Self {
+    pub fn new(pc: u32) -> Self {
         Self {
             gprs: [0u32; 32],
-            pc: 0,
+            pc,
             hi: 0,
             lo: 0,
 
@@ -51,6 +51,7 @@ impl Cpu {
         if let Some((reg, val)) = pending {
             self.write_reg(reg, val);
         }
+        self.pc = self.pc.wrapping_add(4);
     }
 
     fn read_reg(&self, idx: u8) -> u32 {
@@ -327,6 +328,6 @@ impl Cpu {
 
 impl Default for Cpu {
     fn default() -> Self {
-        Self::new()
+        Self::new(0xbfc0_0000)
     }
 }
