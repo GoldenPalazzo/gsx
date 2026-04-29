@@ -506,7 +506,10 @@ impl Cpu {
     }
 
     fn trigger_exception(&mut self, ex: Exception) {
-        panic!("Exception {:?} at PC{:08X}", ex, self.pc);
+        let new_pc = self.cop0.handle_exception(ex, self.pc);
+        self.pc = new_pc;
+        self.jump_delay = None;
+        // panic!("Exception {:?} at PC{:08X}", ex, self.pc);
     }
 }
 
