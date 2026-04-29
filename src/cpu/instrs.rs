@@ -19,6 +19,10 @@ fn get_imm16(opcode: u32) -> u16 {
     (opcode & 0xffff).try_into().unwrap()
 }
 #[inline(always)]
+fn get_imm25(opcode: u32) -> u32 {
+    opcode & 0x01ff_ffff
+}
+#[inline(always)]
 fn get_imm26(opcode: u32) -> u32 {
     opcode & 0x03ff_ffff
 }
@@ -482,7 +486,11 @@ impl Instruction {
                             _ => unreachable!(),
                         }
                     } else {
-                        todo!("Not implemented COPn imm25")
+                        todo!(
+                            "Not implemented COPn imm25 (COP{} {:08X})",
+                            n,
+                            get_imm25(opcode)
+                        )
                     },
                 },
                 _ => unreachable!(),
