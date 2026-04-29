@@ -50,13 +50,7 @@ pub enum CopInstruction {
     BCT { imm: u16 },
     LWC { rs: u8, rt: u8, imm: u16 },
     SWC { rs: u8, rt: u8, imm: u16 },
-
-    // Only COP0
-    RFE,
-    TLBR,
-    TLBWI,
-    TLBWR,
-    TLBP,
+    COP { cmd: u32 },
 }
 
 #[allow(clippy::upper_case_acronyms)]
@@ -476,21 +470,8 @@ impl Instruction {
                 },
                 0x10..=0x1f => Instruction::COP {
                     n,
-                    instr: if n == 0 {
-                        match get_secondary(opcode) {
-                            1 => CopInstruction::TLBR,
-                            2 => CopInstruction::TLBWI,
-                            6 => CopInstruction::TLBWR,
-                            8 => CopInstruction::TLBP,
-                            16 => CopInstruction::RFE,
-                            _ => unreachable!(),
-                        }
-                    } else {
-                        todo!(
-                            "Not implemented COPn imm25 (COP{} {:08X})",
-                            n,
-                            get_imm25(opcode)
-                        )
+                    instr: CopInstruction::COP {
+                        cmd: get_imm25(opcode),
                     },
                 },
                 _ => unreachable!(),

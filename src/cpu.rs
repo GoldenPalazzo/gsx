@@ -437,49 +437,65 @@ impl Cpu {
                 }
             }
 
-            Instruction::COP { n, instr } => match instr {
-                CopInstruction::MFC { rt, rd } => {
-                    let val = cop_dispatch!(self, n, read_reg(rd));
-                    self.load_delay = Some((rt, val));
+            Instruction::COP { n, instr } => {
+                if n != 0 && n != 2 {
+                    self.trigger_exception(Exception::CoprocessorUnusable);
+                    return;
                 }
-                CopInstruction::CFC { rt, rd } => {
-                    let val = cop_dispatch!(self, n, read_reg(rd));
-                    self.load_delay = Some((rt, val));
+
+                match instr {
+                    CopInstruction::MFC { rt, rd } => {
+                        let val = cop_dispatch!(self, n, read_reg(rd));
+                        self.load_delay = Some((rt, val));
+                    }
+                    CopInstruction::CFC { rt, rd } => {
+                        let val = cop_dispatch!(self, n, read_reg(rd));
+                        self.load_delay = Some((rt, val));
+                    }
+                    CopInstruction::MTC { rt, rd } => {
+                        let val = self.read_reg(rt);
+                        cop_dispatch!(self, n, write_reg(rd, val));
+                    }
+                    CopInstruction::CTC { rt, rd } => {
+                        let val = self.read_reg(rt);
+                        cop_dispatch!(self, n, write_reg(rd, val));
+                    }
+                    CopInstruction::LWC { rs, rt, imm } => {
+                        let addr = self.read_reg(rs).wrapping_add(imm as i16 as u32);
+                        let val = mem.read_word(addr);
+                        cop_dispatch!(self, n, write_reg(rt, val));
+                    }
+                    CopInstruction::SWC { rs, rt, imm } => {
+                        let val = cop_dispatch!(self, n, read_reg(rt));
+                        let addr = self.read_reg(rs).wrapping_add(imm as i16 as u32);
+                        mem.write_word(addr, val);
+                    }
+                    CopInstruction::BCF { imm } => {
+                        match n {
+                            0 => self.trigger_exception(Exception::CoprocessorUnusable),
+                            2 => {}
+                            _ => unreachable!(),
+                        };
+                    }
+                    CopInstruction::BCT { imm } => {
+                        match n {
+                            0 => self.trigger_exception(Exception::CoprocessorUnusable),
+                            2 => {}
+                            _ => unreachable!(),
+                        };
+                    }
+                    CopInstruction::COP { cmd } => {
+                        match n {
+                            0 => self.cop0.exec(cmd),
+                            2 => self.gte.exec(cmd),
+                            _ => unreachable!(),
+                        }
+                        // Cop0 only
+                    }
+
+                    _ => {}
                 }
-                CopInstruction::MTC { rt, rd } => {
-                    let val = self.read_reg(rt);
-                    cop_dispatch!(self, n, write_reg(rd, val));
-                }
-                CopInstruction::CTC { rt, rd } => {
-                    let val = self.read_reg(rt);
-                    cop_dispatch!(self, n, write_reg(rd, val));
-                }
-                CopInstruction::LWC { rs, rt, imm } => {
-                    let addr = self.read_reg(rs).wrapping_add(imm as i16 as u32);
-                    let val = mem.read_word(addr);
-                    cop_dispatch!(self, n, write_reg(rt, val));
-                }
-                CopInstruction::SWC { rs, rt, imm } => {
-                    let val = cop_dispatch!(self, n, read_reg(rt));
-                    let addr = self.read_reg(rs).wrapping_add(imm as i16 as u32);
-                    mem.write_word(addr, val);
-                }
-                CopInstruction::BCF { imm } => {
-                    match n {
-                        0 => self.trigger_exception(Exception::CoprocessorUnusable),
-                        2 => {}
-                        _ => {}
-                    };
-                }
-                CopInstruction::RFE => {
-                    // Cop0 only
-                }
-                CopInstruction::TLBR
-                | CopInstruction::TLBWI
-                | CopInstruction::TLBWR
-                | CopInstruction::TLBP => unreachable!("Unused opcode in PSX"),
-                _ => {}
-            },
+            }
 
             Instruction::SYSCALL { comment } => self.trigger_exception(Exception::SystemCall),
             Instruction::BREAK { comment } => self.trigger_exception(Exception::Breakpoint),

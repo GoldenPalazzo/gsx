@@ -31,7 +31,14 @@ impl Coprocessor for Cop0 {
             self.regs[reg as usize] = val
         }
     }
-    fn exec(&mut self, cmd: u32) {}
+    fn exec(&mut self, cmd: u32) {
+        match cmd & 0x3f {
+            0b010000 => {
+                todo!("RFE")
+            }
+            _ => unreachable!("Invalid cmd {:08X}", cmd),
+        }
+    }
 }
 
 pub struct Gte {
@@ -57,5 +64,7 @@ impl Coprocessor for Gte {
             self.regs[reg as usize] = val
         }
     }
-    fn exec(&mut self, cmd: u32) {}
+    fn exec(&mut self, cmd: u32) {
+        todo!("{:08X}", cmd)
+    }
 }
