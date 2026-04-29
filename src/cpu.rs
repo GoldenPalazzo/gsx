@@ -1,18 +1,29 @@
+mod coprocessor;
 mod instrs;
 
 use std::fmt;
 
+use coprocessor::{Cop0, Coprocessor, Gte};
+
 use super::memory::MemoryBus;
-use instrs::Instruction;
+use instrs::{CopInstruction, Instruction};
 
 #[derive(Debug)]
+#[repr(u8)]
 enum Exception {
-    Overflow,
-    IllegalInstruction,
-    LoadAddressError,
-    StoreAddressError,
-    SystemCall(u32),
-    Breakpoint(u32),
+    ExternalInterrupt = 0x00,
+    TLBModification = 0x01,
+    TLBLoad = 0x02,
+    TLBStore = 0x03,
+    AddressErrorDataLoad = 0x04,
+    AddressErrorDataStore = 0x05,
+    BusErrorInstructionFetch = 0x06,
+    BusErrorData = 0x07,
+    SystemCall = 0x08,
+    Breakpoint = 0x09,
+    ReservedInstruction = 0x0a,
+    CoprocessorUnusable = 0x0b,
+    ArithmeticOverflow = 0x0c,
 }
 
 const RETURN_ADDR: u8 = 31;
@@ -23,8 +34,21 @@ pub struct Cpu {
     hi: u32,
     lo: u32,
 
+    cop0: Cop0,
+    gte: Gte,
+
     load_delay: Option<(u8, u32)>,
     jump_delay: Option<u32>,
+}
+
+macro_rules! cop_dispatch {
+    ($self:expr, $n:expr, $method:ident ( $($arg:expr),* )) => {
+        match $n {
+            0 => $self.cop0.$method($($arg),*),
+            2 => $self.gte.$method($($arg),*),
+            _ => unreachable!(),
+        }
+    };
 }
 
 impl Cpu {
@@ -34,6 +58,9 @@ impl Cpu {
             pc,
             hi: 0,
             lo: 0,
+
+            cop0: Cop0::new(),
+            gte: Gte::new(),
 
             load_delay: None,
             jump_delay: None,
@@ -224,7 +251,7 @@ impl Cpu {
                     let val = mem.read_halfword(addr);
                     self.load_delay = Some((rt, val as i16 as i32 as u32));
                 } else {
-                    self.trigger_exception(Exception::LoadAddressError);
+                    self.trigger_exception(Exception::AddressErrorDataLoad);
                 }
             }
             Instruction::LHU { rs, rt, imm } => {
@@ -233,7 +260,7 @@ impl Cpu {
                     let val = mem.read_halfword(addr);
                     self.load_delay = Some((rt, val as u32));
                 } else {
-                    self.trigger_exception(Exception::LoadAddressError);
+                    self.trigger_exception(Exception::AddressErrorDataLoad);
                 }
             }
             Instruction::LW { rs, rt, imm } => {
@@ -242,7 +269,7 @@ impl Cpu {
                     let val = mem.read_word(self.read_reg(rs).wrapping_add(imm as u32));
                     self.load_delay = Some((rt, val));
                 } else {
-                    self.trigger_exception(Exception::LoadAddressError);
+                    self.trigger_exception(Exception::AddressErrorDataLoad);
                 }
             }
             Instruction::SB { rs, rt, imm } => {
@@ -254,7 +281,7 @@ impl Cpu {
                 if addr.is_multiple_of(2) {
                     mem.write_halfword(addr, self.read_reg(rt) as u16);
                 } else {
-                    self.trigger_exception(Exception::StoreAddressError);
+                    self.trigger_exception(Exception::AddressErrorDataStore);
                 }
             }
             Instruction::SW { rs, rt, imm } => {
@@ -262,7 +289,7 @@ impl Cpu {
                 if addr.is_multiple_of(4) {
                     mem.write_word(addr, self.read_reg(rt));
                 } else {
-                    self.trigger_exception(Exception::StoreAddressError);
+                    self.trigger_exception(Exception::AddressErrorDataStore);
                 }
             }
             Instruction::LWR { rs, rt, imm } => {
@@ -410,14 +437,54 @@ impl Cpu {
                 }
             }
 
-            Instruction::SYSCALL { comment } => {
-                self.trigger_exception(Exception::SystemCall(comment))
-            }
-            Instruction::BREAK { comment } => {
-                self.trigger_exception(Exception::Breakpoint(comment))
-            }
+            Instruction::COP { n, instr } => match instr {
+                CopInstruction::MFC { rt, rd } => {
+                    let val = cop_dispatch!(self, n, read_reg(rd));
+                    self.load_delay = Some((rt, val));
+                }
+                CopInstruction::CFC { rt, rd } => {
+                    let val = cop_dispatch!(self, n, read_reg(rd));
+                    self.load_delay = Some((rt, val));
+                }
+                CopInstruction::MTC { rt, rd } => {
+                    let val = self.read_reg(rt);
+                    cop_dispatch!(self, n, write_reg(rd, val));
+                }
+                CopInstruction::CTC { rt, rd } => {
+                    let val = self.read_reg(rt);
+                    cop_dispatch!(self, n, write_reg(rd, val));
+                }
+                CopInstruction::LWC { rs, rt, imm } => {
+                    let addr = self.read_reg(rs).wrapping_add(imm as i16 as u32);
+                    let val = mem.read_word(addr);
+                    cop_dispatch!(self, n, write_reg(rt, val));
+                }
+                CopInstruction::SWC { rs, rt, imm } => {
+                    let val = cop_dispatch!(self, n, read_reg(rt));
+                    let addr = self.read_reg(rs).wrapping_add(imm as i16 as u32);
+                    mem.write_word(addr, val);
+                }
+                CopInstruction::BCF { imm } => {
+                    match n {
+                        0 => self.trigger_exception(Exception::CoprocessorUnusable),
+                        2 => {}
+                        _ => {}
+                    };
+                }
+                CopInstruction::RFE => {
+                    // Cop0 only
+                }
+                CopInstruction::TLBR
+                | CopInstruction::TLBWI
+                | CopInstruction::TLBWR
+                | CopInstruction::TLBP => unreachable!("Unused opcode in PSX"),
+                _ => {}
+            },
 
-            Instruction::ILLEGAL => self.trigger_exception(Exception::IllegalInstruction),
+            Instruction::SYSCALL { comment } => self.trigger_exception(Exception::SystemCall),
+            Instruction::BREAK { comment } => self.trigger_exception(Exception::Breakpoint),
+
+            Instruction::ILLEGAL => self.trigger_exception(Exception::ReservedInstruction),
             _ => todo!(),
         }
     }
