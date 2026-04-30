@@ -107,23 +107,28 @@ impl Cpu {
     fn execute(&mut self, opcode: Instruction, mem: &mut MemoryBus) {
         match opcode {
             Instruction::ADD { rs, rt, rd } => {
-                self.write_reg(rd, self.read_reg(rs).wrapping_add(self.read_reg(rt)));
-                // TODO: overflow trap with checked_add
+                match self.read_reg(rs).checked_add(self.read_reg(rt)) {
+                    Some(val) => self.write_reg(rd, val),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow),
+                }
             }
             Instruction::ADDU { rs, rt, rd } => {
                 self.write_reg(rd, self.read_reg(rs).wrapping_add(self.read_reg(rt)));
             }
             Instruction::SUB { rs, rt, rd } => {
-                self.write_reg(rd, self.read_reg(rs).wrapping_sub(self.read_reg(rt)));
-                // TODO: overflow trap
+                match self.read_reg(rs).checked_sub(self.read_reg(rt)) {
+                    Some(val) => self.write_reg(rd, val),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow),
+                }
             }
             Instruction::SUBU { rs, rt, rd } => {
                 self.write_reg(rd, self.read_reg(rs).wrapping_sub(self.read_reg(rt)));
             }
             Instruction::ADDI { rs, rt, imm } => {
-                let val = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
-                self.write_reg(rt, val);
-                // TODO: overflow trap
+                match self.read_reg(rs).checked_add(imm as i16 as i32 as u32) {
+                    Some(val) => self.write_reg(rt, val),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow),
+                }
             }
             Instruction::ADDIU { rs, rt, imm } => {
                 let val = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
