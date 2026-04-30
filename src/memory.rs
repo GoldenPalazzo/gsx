@@ -42,6 +42,27 @@ impl MemoryBus {
         bus
     }
 
+    pub fn load_psexe(&mut self, exe: &[u8]) -> (u32, u32, u32) {
+        let initial_pc = u32::from_le_bytes(exe[0x10..0x14].try_into().unwrap());
+        let initial_r28 = u32::from_le_bytes(exe[0x14..0x18].try_into().unwrap());
+        let dest_addr = u32::from_le_bytes(exe[0x18..0x1c].try_into().unwrap());
+        let filesize = u32::from_le_bytes(exe[0x1c..0x20].try_into().unwrap());
+        let memfill_start = u32::from_le_bytes(exe[0x28..0x2c].try_into().unwrap());
+        let memfill_size = u32::from_le_bytes(exe[0x2c..0x30].try_into().unwrap());
+        let initial_r29_r30 = u32::from_le_bytes(exe[0x30..0x34].try_into().unwrap())
+            .wrapping_add(u32::from_le_bytes(exe[0x34..0x38].try_into().unwrap()));
+        for byte in 0..filesize {
+            let addr = dest_addr.wrapping_add(byte);
+            self.write_byte(addr, exe[0x800 + byte as usize]);
+        }
+
+        for byte in 0..memfill_size {
+            let addr = memfill_start.wrapping_add(byte);
+            self.write_byte(addr, 0);
+        }
+        (initial_pc, initial_r28, initial_r29_r30)
+    }
+
     pub fn read_byte(&self, addr: u32) -> u8 {
         let addr = Self::mask_address(addr);
         match addr {

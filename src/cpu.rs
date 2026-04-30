@@ -53,8 +53,8 @@ macro_rules! cop_dispatch {
 }
 
 impl Cpu {
-    pub fn new(pc: u32) -> Self {
-        Self {
+    pub fn new(pc: u32, r28: u32, r29: u32, r30: u32) -> Self {
+        let mut n = Self {
             gprs: [0u32; 32],
             pc,
             hi: 0,
@@ -66,7 +66,11 @@ impl Cpu {
             load_delay: None,
             jump_delay: None,
             exception_pc: None,
-        }
+        };
+        n.gprs[28] = r28;
+        n.gprs[29] = r29;
+        n.gprs[30] = r30;
+        n
     }
 
     pub fn step(&mut self, mem: &mut MemoryBus) {
@@ -515,7 +519,7 @@ impl Cpu {
 
 impl Default for Cpu {
     fn default() -> Self {
-        Self::new(0xbfc0_0000)
+        Self::new(0xbfc0_0000, 0, 0, 0)
     }
 }
 
