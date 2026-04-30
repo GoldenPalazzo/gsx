@@ -39,6 +39,7 @@ pub struct Cpu {
 
     load_delay: Option<(u8, u32)>,
     jump_delay: Option<u32>,
+    exception_pc: Option<u32>,
 }
 
 macro_rules! cop_dispatch {
@@ -64,12 +65,15 @@ impl Cpu {
 
             load_delay: None,
             jump_delay: None,
+            exception_pc: None,
         }
     }
 
     pub fn step(&mut self, mem: &mut MemoryBus) {
+        assert!(self.pc.is_multiple_of(4), "PC is unaligned!!!");
         let pending_load = self.load_delay.take();
         let pending_jump = self.jump_delay.take();
+        let pending_ex = self.exception_pc.take();
 
         // let opcode = u32::from_le_bytes([
         //     mem[self.pc as usize],
@@ -79,9 +83,14 @@ impl Cpu {
         // ]);
         let opcode = mem.read_word(self.pc);
         let disasm = Instruction::decode(opcode);
-        println!("{}", self);
-        println!("0x{:08X}: {:08X} -> {:?} ", self.pc, opcode, disasm);
+        print!("{}", self);
+        println!("0x{:08X}: {:08X} -> {:?}\n", self.pc, opcode, disasm);
         self.execute(disasm, mem);
+
+        if let Some(epc) = pending_ex {
+            self.pc = epc;
+            return;
+        }
 
         if let Some((reg, val)) = pending_load {
             self.write_reg(reg, val);
@@ -369,76 +378,52 @@ impl Cpu {
             }
             Instruction::BEQ { rs, rt, imm } => {
                 if self.read_reg(rs) == self.read_reg(rt) {
-                    self.jump_delay = Some(
-                        self.pc
-                            .wrapping_add(4)
-                            .wrapping_add(imm as i16 as i32 as u32),
-                    )
+                    let off = (imm as i16 as i32 * 4) as u32;
+                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BNE { rs, rt, imm } => {
                 if self.read_reg(rs) != self.read_reg(rt) {
-                    self.jump_delay = Some(
-                        self.pc
-                            .wrapping_add(4)
-                            .wrapping_add(imm as i16 as i32 as u32),
-                    )
+                    let off = (imm as i16 as i32 * 4) as u32;
+                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BLTZ { rs, imm } => {
                 if (self.read_reg(rs) as i32) < 0 {
-                    self.jump_delay = Some(
-                        self.pc
-                            .wrapping_add(4)
-                            .wrapping_add(imm as i16 as i32 as u32),
-                    )
+                    let off = (imm as i16 as i32 * 4) as u32;
+                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BGEZ { rs, imm } => {
                 if (self.read_reg(rs) as i32) >= 0 {
-                    self.jump_delay = Some(
-                        self.pc
-                            .wrapping_add(4)
-                            .wrapping_add(imm as i16 as i32 as u32),
-                    )
+                    let off = (imm as i16 as i32 * 4) as u32;
+                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BGTZ { rs, imm } => {
                 if (self.read_reg(rs) as i32) > 0 {
-                    self.jump_delay = Some(
-                        self.pc
-                            .wrapping_add(4)
-                            .wrapping_add(imm as i16 as i32 as u32),
-                    )
+                    let off = (imm as i16 as i32 * 4) as u32;
+                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BLEZ { rs, imm } => {
                 if (self.read_reg(rs) as i32) <= 0 {
-                    self.jump_delay = Some(
-                        self.pc
-                            .wrapping_add(4)
-                            .wrapping_add(imm as i16 as i32 as u32),
-                    )
+                    let off = (imm as i16 as i32 * 4) as u32;
+                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BLTZAL { rs, imm } => {
                 self.write_reg(RETURN_ADDR, self.pc.wrapping_add(8));
                 if (self.read_reg(rs) as i32) < 0 {
-                    self.jump_delay = Some(
-                        self.pc
-                            .wrapping_add(4)
-                            .wrapping_add(imm as i16 as i32 as u32),
-                    )
+                    let off = (imm as i16 as i32 * 4) as u32;
+                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BGEZAL { rs, imm } => {
                 self.write_reg(RETURN_ADDR, self.pc.wrapping_add(8));
                 if (self.read_reg(rs) as i32) >= 0 {
-                    self.jump_delay = Some(
-                        self.pc
-                            .wrapping_add(4)
-                            .wrapping_add(imm as i16 as i32 as u32),
-                    )
+                    let off = (imm as i16 as i32 * 4) as u32;
+                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
 
@@ -512,8 +497,7 @@ impl Cpu {
 
     fn trigger_exception(&mut self, ex: Exception) {
         let new_pc = self.cop0.handle_exception(ex, self.pc);
-        self.pc = new_pc;
-        self.jump_delay = None;
+        self.exception_pc = Some(new_pc);
         // panic!("Exception {:?} at PC{:08X}", ex, self.pc);
     }
 }
