@@ -23,9 +23,11 @@ impl Cop0 {
         Self { regs: [0u32; 64] }
     }
 
-    pub fn handle_exception(&mut self, ex: Exception, pc: u32) -> u32 {
-        self.regs[Self::EPC] = pc;
-        self.regs[Self::CAUSE] |= (ex as u32) << 2;
+    pub fn handle_exception(&mut self, ex: Exception, pc: u32, in_delay: bool) -> u32 {
+        self.regs[Self::EPC] = if in_delay { pc.wrapping_sub(4) } else { pc };
+        self.regs[Self::CAUSE] = (self.regs[Self::CAUSE] & !0x8000_00ff)
+            | ((ex as u32) << 2)
+            | ((in_delay as u32) << 31);
         self.push_iec_kuc(0b00);
         self.get_exception_handlers()
     }

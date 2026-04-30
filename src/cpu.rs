@@ -73,7 +73,6 @@ impl Cpu {
         assert!(self.pc.is_multiple_of(4), "PC is unaligned!!!");
         let pending_load = self.load_delay.take();
         let pending_jump = self.jump_delay.take();
-        let pending_ex = self.exception_pc.take();
 
         // let opcode = u32::from_le_bytes([
         //     mem[self.pc as usize],
@@ -85,9 +84,9 @@ impl Cpu {
         let disasm = Instruction::decode(opcode);
         print!("{}", self);
         println!("0x{:08X}: {:08X} -> {:?}\n", self.pc, opcode, disasm);
-        self.execute(disasm, mem);
+        self.execute(disasm, mem, pending_jump.is_some());
 
-        if let Some(epc) = pending_ex {
+        if let Some(epc) = self.exception_pc.take() {
             self.pc = epc;
             return;
         }
@@ -113,30 +112,36 @@ impl Cpu {
         }
     }
 
-    fn execute(&mut self, opcode: Instruction, mem: &mut MemoryBus) {
+    fn execute(&mut self, opcode: Instruction, mem: &mut MemoryBus, load_delay: bool) {
         match opcode {
             Instruction::ADD { rs, rt, rd } => {
-                match self.read_reg(rs).checked_add(self.read_reg(rt)) {
-                    Some(val) => self.write_reg(rd, val),
-                    None => self.trigger_exception(Exception::ArithmeticOverflow),
+                let a = self.read_reg(rs) as i32;
+                let b = self.read_reg(rt) as i32;
+                match a.checked_add(b) {
+                    Some(val) => self.write_reg(rd, val as u32),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow, load_delay),
                 }
             }
             Instruction::ADDU { rs, rt, rd } => {
                 self.write_reg(rd, self.read_reg(rs).wrapping_add(self.read_reg(rt)));
             }
             Instruction::SUB { rs, rt, rd } => {
-                match self.read_reg(rs).checked_sub(self.read_reg(rt)) {
-                    Some(val) => self.write_reg(rd, val),
-                    None => self.trigger_exception(Exception::ArithmeticOverflow),
+                let a = self.read_reg(rs) as i32;
+                let b = self.read_reg(rt) as i32;
+                match a.checked_sub(b) {
+                    Some(val) => self.write_reg(rd, val as u32),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow, load_delay),
                 }
             }
             Instruction::SUBU { rs, rt, rd } => {
                 self.write_reg(rd, self.read_reg(rs).wrapping_sub(self.read_reg(rt)));
             }
             Instruction::ADDI { rs, rt, imm } => {
-                match self.read_reg(rs).checked_add(imm as i16 as i32 as u32) {
-                    Some(val) => self.write_reg(rt, val),
-                    None => self.trigger_exception(Exception::ArithmeticOverflow),
+                let a = self.read_reg(rs) as i32;
+                let b = imm as i16 as i32;
+                match a.checked_add(b) {
+                    Some(val) => self.write_reg(rt, val as u32),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow, load_delay),
                 }
             }
             Instruction::ADDIU { rs, rt, imm } => {
@@ -225,21 +230,21 @@ impl Cpu {
                 let a = self.read_reg(rs) as i32;
                 let b = self.read_reg(rt) as i32;
                 if b == 0 {
-                    self.hi = 0;
-                    self.lo = 0;
+                    self.hi = a as u32;
+                    self.lo = if a < 0 { 1 } else { u32::MAX };
                 } else {
                     let (quot, _) = a.overflowing_div(b);
                     let (rem, _) = a.overflowing_rem(b);
-                    self.hi = quot as u32;
-                    self.lo = rem as u32;
+                    self.hi = rem as u32;
+                    self.lo = quot as u32;
                 }
             }
             Instruction::DIVU { rs, rt } => {
                 let a = self.read_reg(rs);
                 let b = self.read_reg(rt);
                 if b == 0 {
-                    self.hi = 0;
-                    self.lo = 0;
+                    self.hi = a;
+                    self.lo = u32::MAX;
                 } else {
                     self.hi = a % b;
                     self.lo = a / b;
@@ -265,7 +270,7 @@ impl Cpu {
                     let val = mem.read_halfword(addr);
                     self.load_delay = Some((rt, val as i16 as i32 as u32));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataLoad);
+                    self.trigger_exception(Exception::AddressErrorDataLoad, load_delay);
                 }
             }
             Instruction::LHU { rs, rt, imm } => {
@@ -274,16 +279,16 @@ impl Cpu {
                     let val = mem.read_halfword(addr);
                     self.load_delay = Some((rt, val as u32));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataLoad);
+                    self.trigger_exception(Exception::AddressErrorDataLoad, load_delay);
                 }
             }
             Instruction::LW { rs, rt, imm } => {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
                 if addr.is_multiple_of(4) {
-                    let val = mem.read_word(self.read_reg(rs).wrapping_add(imm as u32));
+                    let val = mem.read_word(addr);
                     self.load_delay = Some((rt, val));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataLoad);
+                    self.trigger_exception(Exception::AddressErrorDataLoad, load_delay);
                 }
             }
             Instruction::SB { rs, rt, imm } => {
@@ -295,7 +300,7 @@ impl Cpu {
                 if addr.is_multiple_of(2) {
                     mem.write_halfword(addr, self.read_reg(rt) as u16);
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataStore);
+                    self.trigger_exception(Exception::AddressErrorDataStore, load_delay);
                 }
             }
             Instruction::SW { rs, rt, imm } => {
@@ -303,7 +308,7 @@ impl Cpu {
                 if addr.is_multiple_of(4) {
                     mem.write_word(addr, self.read_reg(rt));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataStore);
+                    self.trigger_exception(Exception::AddressErrorDataStore, load_delay);
                 }
             }
             Instruction::LWR { rs, rt, imm } => {
@@ -429,7 +434,7 @@ impl Cpu {
 
             Instruction::COP { n, instr } => {
                 if n != 0 && n != 2 {
-                    self.trigger_exception(Exception::CoprocessorUnusable);
+                    self.trigger_exception(Exception::CoprocessorUnusable, load_delay);
                     return;
                 }
 
@@ -462,14 +467,14 @@ impl Cpu {
                     }
                     CopInstruction::BCF { imm } => {
                         match n {
-                            0 => self.trigger_exception(Exception::CoprocessorUnusable),
+                            0 => self.trigger_exception(Exception::CoprocessorUnusable, load_delay),
                             2 => {}
                             _ => unreachable!(),
                         };
                     }
                     CopInstruction::BCT { imm } => {
                         match n {
-                            0 => self.trigger_exception(Exception::CoprocessorUnusable),
+                            0 => self.trigger_exception(Exception::CoprocessorUnusable, load_delay),
                             2 => {}
                             _ => unreachable!(),
                         };
@@ -487,16 +492,22 @@ impl Cpu {
                 }
             }
 
-            Instruction::SYSCALL { comment } => self.trigger_exception(Exception::SystemCall),
-            Instruction::BREAK { comment } => self.trigger_exception(Exception::Breakpoint),
+            Instruction::SYSCALL { comment } => {
+                self.trigger_exception(Exception::SystemCall, load_delay)
+            }
+            Instruction::BREAK { comment } => {
+                self.trigger_exception(Exception::Breakpoint, load_delay)
+            }
 
-            Instruction::ILLEGAL => self.trigger_exception(Exception::ReservedInstruction),
+            Instruction::ILLEGAL => {
+                self.trigger_exception(Exception::ReservedInstruction, load_delay)
+            }
             _ => todo!(),
         }
     }
 
-    fn trigger_exception(&mut self, ex: Exception) {
-        let new_pc = self.cop0.handle_exception(ex, self.pc);
+    fn trigger_exception(&mut self, ex: Exception, load_delay: bool) {
+        let new_pc = self.cop0.handle_exception(ex, self.pc, load_delay);
         self.exception_pc = Some(new_pc);
         // panic!("Exception {:?} at PC{:08X}", ex, self.pc);
     }
