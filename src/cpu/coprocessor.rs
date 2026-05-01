@@ -23,10 +23,24 @@ impl Cop0 {
         Self { regs: [0u32; 64] }
     }
 
-    pub fn handle_exception(&mut self, ex: Exception, pc: u32, in_delay: bool) -> u32 {
+    pub fn handle_exception(
+        &mut self,
+        ex: Exception,
+        pc: u32,
+        in_delay: bool,
+        pending_branch: bool,
+    ) -> u32 {
+        let is_coprocessor = ex == Exception::CoprocessorUnusable;
+        if is_coprocessor {
+            todo!("Not implemented CoprocessorUnusable mask (bit 28-29)");
+        }
+        let ce = 0;
+
         self.regs[Self::EPC] = if in_delay { pc.wrapping_sub(4) } else { pc };
-        self.regs[Self::CAUSE] = (self.regs[Self::CAUSE] & !0x8000_00ff)
+        self.regs[Self::CAUSE] = (self.regs[Self::CAUSE] & !0xf000_00ff)
             | ((ex as u32) << 2)
+            | ((ce) << 28)
+            | ((pending_branch as u32) << 30)
             | ((in_delay as u32) << 31);
         self.push_iec_kuc(0b00);
         self.get_exception_handlers()

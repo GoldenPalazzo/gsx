@@ -10,7 +10,7 @@ use super::memory::BusInterface;
 use instrs::{CopInstruction, Instruction};
 
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 enum Exception {
     ExternalInterrupt = 0x00,
@@ -41,7 +41,8 @@ pub struct Cpu {
 
     load_delay: Option<(u8, u32)>,
     last_written_reg: Option<u8>,
-    jump_delay: Option<u32>,
+    taken_branch: Option<u32>,
+    in_branch_delay: bool, // necessary for cop0r13 bit 30
     exception_pc: Option<u32>,
 }
 
@@ -68,7 +69,8 @@ impl Cpu {
 
             load_delay: None,
             last_written_reg: None,
-            jump_delay: None,
+            taken_branch: None,
+            in_branch_delay: false,
             exception_pc: None,
         };
         n.gprs[28] = r28;
@@ -84,7 +86,8 @@ impl Cpu {
         print!("{}", self);
         println!("0x{:08X}: {:08X} -> {:?}", self.pc, opcode, disasm);
         let pending_load = self.load_delay.take();
-        let pending_jump = self.jump_delay.take();
+        let pending_branch = self.taken_branch.take();
+        let old_branch_delay = self.in_branch_delay;
 
         // let opcode = u32::from_le_bytes([
         //     mem[self.pc as usize],
@@ -93,21 +96,26 @@ impl Cpu {
         //     mem[self.pc.wrapping_add(3) as usize],
         // ]);
 
-        self.execute(disasm, mem, pending_jump.is_some());
+        self.execute(disasm, mem, pending_branch.is_some());
+        if old_branch_delay && self.in_branch_delay {
+            self.in_branch_delay = false;
+        }
         let last_reg = self.last_written_reg.take().unwrap_or(u8::MAX);
+        if let Some((reg, val)) = pending_load
+            && reg != last_reg
+        {
+            println!("Applying load delay slot! r{} val={:08X}", reg, val);
+            if reg != 0 {
+                self.gprs[reg as usize] = val;
+            }
+        }
 
         if let Some(epc) = self.exception_pc.take() {
             self.pc = epc;
             return;
         }
 
-        if let Some((reg, val)) = pending_load
-            && reg != last_reg
-        {
-            self.write_reg(reg, val);
-        }
-
-        if let Some(pc) = pending_jump {
+        if let Some(pc) = pending_branch {
             self.pc = pc;
         } else {
             self.pc = self.pc.wrapping_add(4);
@@ -125,14 +133,14 @@ impl Cpu {
         }
     }
 
-    fn execute<T: BusInterface>(&mut self, opcode: Instruction, mem: &mut T, load_delay: bool) {
+    fn execute<T: BusInterface>(&mut self, opcode: Instruction, mem: &mut T, pending_branch: bool) {
         match opcode {
             Instruction::ADD { rs, rt, rd } => {
                 let a = self.read_reg(rs) as i32;
                 let b = self.read_reg(rt) as i32;
                 match a.checked_add(b) {
                     Some(val) => self.write_reg(rd, val as u32),
-                    None => self.trigger_exception(Exception::ArithmeticOverflow, load_delay),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow, pending_branch),
                 }
             }
             Instruction::ADDU { rs, rt, rd } => {
@@ -143,7 +151,7 @@ impl Cpu {
                 let b = self.read_reg(rt) as i32;
                 match a.checked_sub(b) {
                     Some(val) => self.write_reg(rd, val as u32),
-                    None => self.trigger_exception(Exception::ArithmeticOverflow, load_delay),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow, pending_branch),
                 }
             }
             Instruction::SUBU { rs, rt, rd } => {
@@ -168,7 +176,7 @@ impl Cpu {
                 self.write_reg(rt, res);
                 // match a.checked_add(b) {
                 //     Some(val) => self.write_reg(rt, val as u32),
-                //     None => self.trigger_exception(Exception::ArithmeticOverflow, load_delay),
+                //     None => self.trigger_exception(Exception::ArithmeticOverflow, pending_branch),
                 // }
             }
             Instruction::ADDIU { rs, rt, imm } => {
@@ -297,7 +305,7 @@ impl Cpu {
                     let val = mem.read_halfword(addr);
                     self.load_delay = Some((rt, val as i16 as i32 as u32));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataLoad, load_delay);
+                    self.trigger_exception(Exception::AddressErrorDataLoad, pending_branch);
                 }
             }
             Instruction::LHU { rs, rt, imm } => {
@@ -306,7 +314,7 @@ impl Cpu {
                     let val = mem.read_halfword(addr);
                     self.load_delay = Some((rt, val as u32));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataLoad, load_delay);
+                    self.trigger_exception(Exception::AddressErrorDataLoad, pending_branch);
                 }
             }
             Instruction::LW { rs, rt, imm } => {
@@ -315,7 +323,7 @@ impl Cpu {
                     let val = mem.read_word(addr);
                     self.load_delay = Some((rt, val));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataLoad, load_delay);
+                    self.trigger_exception(Exception::AddressErrorDataLoad, pending_branch);
                 }
             }
             Instruction::SB { rs, rt, imm } => {
@@ -327,7 +335,7 @@ impl Cpu {
                 if addr.is_multiple_of(2) {
                     mem.write_halfword(addr, self.read_reg(rt) as u16);
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataStore, load_delay);
+                    self.trigger_exception(Exception::AddressErrorDataStore, pending_branch);
                 }
             }
             Instruction::SW { rs, rt, imm } => {
@@ -335,7 +343,7 @@ impl Cpu {
                 if addr.is_multiple_of(4) {
                     mem.write_word(addr, self.read_reg(rt));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataStore, load_delay);
+                    self.trigger_exception(Exception::AddressErrorDataStore, pending_branch);
                 }
             }
             Instruction::LWR { rs, rt, imm } => {
@@ -395,73 +403,85 @@ impl Cpu {
                 mem.write_word(aligned, val);
             }
             Instruction::J { imm } => {
-                self.jump_delay = Some((self.pc & 0xf000_0000) + (imm * 4));
+                self.in_branch_delay = true;
+                self.taken_branch = Some((self.pc & 0xf000_0000) + (imm * 4));
             }
             Instruction::JAL { imm } => {
-                self.jump_delay = Some((self.pc & 0xf000_0000) + (imm * 4));
+                self.in_branch_delay = true;
+                self.taken_branch = Some((self.pc & 0xf000_0000) + (imm * 4));
                 self.write_reg(RETURN_ADDR, self.pc.wrapping_add(8));
             }
             Instruction::JR { rs } => {
-                self.jump_delay = Some(self.read_reg(rs));
+                self.in_branch_delay = true;
+                self.taken_branch = Some(self.read_reg(rs));
             }
             Instruction::JALR { rs, rd } => {
-                self.jump_delay = Some(self.read_reg(rs));
+                self.in_branch_delay = true;
+                self.taken_branch = Some(self.read_reg(rs));
                 self.write_reg(rd, self.pc.wrapping_add(8));
             }
             Instruction::BEQ { rs, rt, imm } => {
+                self.in_branch_delay = true;
                 if self.read_reg(rs) == self.read_reg(rt) {
                     let off = (imm as i16 as i32 * 4) as u32;
-                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
+                    self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BNE { rs, rt, imm } => {
+                self.in_branch_delay = true;
                 if self.read_reg(rs) != self.read_reg(rt) {
                     let off = (imm as i16 as i32 * 4) as u32;
-                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
+                    self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BLTZ { rs, imm } => {
+                self.in_branch_delay = true;
                 if (self.read_reg(rs) as i32) < 0 {
                     let off = (imm as i16 as i32 * 4) as u32;
-                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
+                    self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BGEZ { rs, imm } => {
+                self.in_branch_delay = true;
                 if (self.read_reg(rs) as i32) >= 0 {
                     let off = (imm as i16 as i32 * 4) as u32;
-                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
+                    self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BGTZ { rs, imm } => {
+                self.in_branch_delay = true;
                 if (self.read_reg(rs) as i32) > 0 {
                     let off = (imm as i16 as i32 * 4) as u32;
-                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
+                    self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BLEZ { rs, imm } => {
+                self.in_branch_delay = true;
                 if (self.read_reg(rs) as i32) <= 0 {
                     let off = (imm as i16 as i32 * 4) as u32;
-                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
+                    self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BLTZAL { rs, imm } => {
+                self.in_branch_delay = true;
                 self.write_reg(RETURN_ADDR, self.pc.wrapping_add(8));
                 if (self.read_reg(rs) as i32) < 0 {
                     let off = (imm as i16 as i32 * 4) as u32;
-                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
+                    self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
             Instruction::BGEZAL { rs, imm } => {
+                self.in_branch_delay = true;
                 self.write_reg(RETURN_ADDR, self.pc.wrapping_add(8));
                 if (self.read_reg(rs) as i32) >= 0 {
                     let off = (imm as i16 as i32 * 4) as u32;
-                    self.jump_delay = Some(self.pc.wrapping_add(4).wrapping_add(off))
+                    self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))
                 }
             }
 
             Instruction::COP { n, instr } => {
                 if n != 0 && n != 2 {
-                    self.trigger_exception(Exception::CoprocessorUnusable, load_delay);
+                    self.trigger_exception(Exception::CoprocessorUnusable, pending_branch);
                     return;
                 }
 
@@ -494,14 +514,16 @@ impl Cpu {
                     }
                     CopInstruction::BCF { imm: _ } => {
                         match n {
-                            0 => self.trigger_exception(Exception::CoprocessorUnusable, load_delay),
+                            0 => self
+                                .trigger_exception(Exception::CoprocessorUnusable, pending_branch),
                             2 => {}
                             _ => unreachable!(),
                         };
                     }
                     CopInstruction::BCT { imm: _ } => {
                         match n {
-                            0 => self.trigger_exception(Exception::CoprocessorUnusable, load_delay),
+                            0 => self
+                                .trigger_exception(Exception::CoprocessorUnusable, pending_branch),
                             2 => {}
                             _ => unreachable!(),
                         };
@@ -518,21 +540,23 @@ impl Cpu {
             }
 
             Instruction::SYSCALL { comment: _ } => {
-                self.trigger_exception(Exception::SystemCall, load_delay)
+                self.trigger_exception(Exception::SystemCall, pending_branch)
             }
             Instruction::BREAK { comment: _ } => {
-                self.trigger_exception(Exception::Breakpoint, load_delay)
+                self.trigger_exception(Exception::Breakpoint, pending_branch)
             }
 
             Instruction::ILLEGAL => {
-                self.trigger_exception(Exception::ReservedInstruction, load_delay)
+                self.trigger_exception(Exception::ReservedInstruction, pending_branch)
             }
             _ => todo!(),
         }
     }
 
-    fn trigger_exception(&mut self, ex: Exception, load_delay: bool) {
-        let new_pc = self.cop0.handle_exception(ex, self.pc, load_delay);
+    fn trigger_exception(&mut self, ex: Exception, pending_branch: bool) {
+        let new_pc = self
+            .cop0
+            .handle_exception(ex, self.pc, self.in_branch_delay, pending_branch);
         self.exception_pc = Some(new_pc);
         // panic!("Exception {:?} at PC{:08X}", ex, self.pc);
     }
@@ -566,6 +590,10 @@ impl fmt::Display for Cpu {
 
         if let Some((reg, val)) = self.load_delay {
             writeln!(f, "Load Delay Slot -> R{:02} = {:08X}", reg, val)?;
+        }
+
+        if let Some(pc) = self.taken_branch {
+            writeln!(f, "In branch delay -> PC = {:08X}", pc)?;
         }
 
         Ok(())

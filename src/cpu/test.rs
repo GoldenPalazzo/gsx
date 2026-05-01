@@ -130,7 +130,7 @@ mod testing {
         } else {
             None
         };
-        cpu.jump_delay = if state.delay.load.take {
+        cpu.taken_branch = if state.delay.load.take {
             Some(state.delay.load.target)
         } else {
             None
