@@ -78,6 +78,7 @@ impl Cpu {
         println!("0x{:08X}: {:08X} -> {:?}", self.pc, opcode, disasm);
 
         let pending_load = self.load_delay.take();
+        let pending_branch = self.taken_branch;
         let old_branch_delay = self.in_branch_delay;
 
         self.execute(disasm, mem);
@@ -90,7 +91,8 @@ impl Cpu {
 
         if old_branch_delay && self.in_branch_delay {
             self.in_branch_delay = false;
-            if let Some(pc) = self.taken_branch.take() {
+            self.taken_branch = None;
+            if let Some(pc) = pending_branch {
                 self.pc = pc;
             } else {
                 self.pc = self.pc.wrapping_add(4);

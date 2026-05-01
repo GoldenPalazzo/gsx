@@ -276,8 +276,12 @@ impl Cpu {
             }
             Instruction::JAL { imm } => {
                 self.in_branch_delay = true;
+                let ra = self
+                    .taken_branch
+                    .unwrap_or(self.pc.wrapping_add(4))
+                    .wrapping_add(4);
                 self.taken_branch = Some((self.pc & 0xf000_0000) + (imm * 4));
-                self.write_reg(Self::RETURN_ADDR, self.pc.wrapping_add(8));
+                self.write_reg(Self::RETURN_ADDR, ra);
             }
             Instruction::JR { rs } => {
                 self.in_branch_delay = true;
@@ -285,8 +289,12 @@ impl Cpu {
             }
             Instruction::JALR { rs, rd } => {
                 self.in_branch_delay = true;
+                let ra = self
+                    .taken_branch
+                    .unwrap_or(self.pc.wrapping_add(4))
+                    .wrapping_add(4);
                 self.taken_branch = Some(self.read_reg(rs));
-                self.write_reg(rd, self.pc.wrapping_add(8));
+                self.write_reg(rd, ra);
             }
             Instruction::BEQ { rs, rt, imm } => {
                 self.in_branch_delay = true;
