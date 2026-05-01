@@ -44,16 +44,6 @@ pub struct Cpu {
     exception_pc: Option<u32>,
 }
 
-macro_rules! cop_dispatch {
-    ($self:expr, $n:expr, $method:ident ( $($arg:expr),* )) => {
-        match $n {
-            0 => $self.cop0.$method($($arg),*),
-            2 => $self.gte.$method($($arg),*),
-            _ => unreachable!(),
-        }
-    };
-}
-
 impl Cpu {
     pub fn new(pc: u32, r28: u32, r29: u32, r30: u32) -> Self {
         let mut n = Self {
@@ -79,26 +69,40 @@ impl Cpu {
 
     pub fn step<T: BusInterface>(&mut self, mem: &mut T) {
         assert!(self.pc.is_multiple_of(4), "PC is unaligned!!!");
+
+        // Decode
         let opcode = mem.read_word(self.pc);
         let disasm = Instruction::decode(opcode);
+
         print!("{}", self);
         println!("0x{:08X}: {:08X} -> {:?}", self.pc, opcode, disasm);
+
         let pending_load = self.load_delay.take();
-        let pending_branch = self.taken_branch.take();
         let old_branch_delay = self.in_branch_delay;
 
-        // let opcode = u32::from_le_bytes([
-        //     mem[self.pc as usize],
-        //     mem[self.pc.wrapping_add(1) as usize],
-        //     mem[self.pc.wrapping_add(2) as usize],
-        //     mem[self.pc.wrapping_add(3) as usize],
-        // ]);
+        self.execute(disasm, mem);
 
-        self.execute(disasm, mem, pending_branch.is_some());
+        println!(
+            "old_branch_delay={} new_branch_delay={}",
+            old_branch_delay, self.in_branch_delay
+        );
+        let last_reg = self.last_written_reg.take().unwrap_or(u8::MAX);
+
         if old_branch_delay && self.in_branch_delay {
             self.in_branch_delay = false;
+            if let Some(pc) = self.taken_branch.take() {
+                self.pc = pc;
+            } else {
+                self.pc = self.pc.wrapping_add(4);
+            }
+        } else {
+            self.pc = self.pc.wrapping_add(4);
         }
-        let last_reg = self.last_written_reg.take().unwrap_or(u8::MAX);
+        if let Some(epc) = self.exception_pc.take() {
+            self.in_branch_delay = false;
+            self.pc = epc;
+        }
+
         if let Some((reg, val)) = pending_load
             && reg != last_reg
         {
@@ -106,17 +110,6 @@ impl Cpu {
             if reg != 0 {
                 self.gprs[reg as usize] = val;
             }
-        }
-
-        if let Some(epc) = self.exception_pc.take() {
-            self.pc = epc;
-            return;
-        }
-
-        if let Some(pc) = pending_branch {
-            self.pc = pc;
-        } else {
-            self.pc = self.pc.wrapping_add(4);
         }
     }
 
@@ -131,12 +124,15 @@ impl Cpu {
         }
     }
 
-    fn trigger_exception(&mut self, ex: Exception, pending_branch: bool) {
-        let new_pc = self
-            .cop0
-            .handle_exception(ex, self.pc, self.in_branch_delay, pending_branch);
+    fn trigger_exception(&mut self, ex: Exception) {
+        println!("Exception {:?} at PC {:08X}", ex, self.pc);
+        let new_pc = self.cop0.handle_exception(
+            ex,
+            self.pc,
+            self.in_branch_delay,
+            self.taken_branch.is_some(),
+        );
         self.exception_pc = Some(new_pc);
-        // panic!("Exception {:?} at PC{:08X}", ex, self.pc);
     }
 }
 

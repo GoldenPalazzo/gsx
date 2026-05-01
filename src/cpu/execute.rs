@@ -15,19 +15,14 @@ macro_rules! cop_dispatch {
 
 impl Cpu {
     const RETURN_ADDR: u8 = 31;
-    pub fn execute<T: BusInterface>(
-        &mut self,
-        opcode: Instruction,
-        mem: &mut T,
-        pending_branch: bool,
-    ) {
+    pub fn execute<T: BusInterface>(&mut self, opcode: Instruction, mem: &mut T) {
         match opcode {
             Instruction::ADD { rs, rt, rd } => {
                 let a = self.read_reg(rs) as i32;
                 let b = self.read_reg(rt) as i32;
                 match a.checked_add(b) {
                     Some(val) => self.write_reg(rd, val as u32),
-                    None => self.trigger_exception(Exception::ArithmeticOverflow, pending_branch),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow),
                 }
             }
             Instruction::ADDU { rs, rt, rd } => {
@@ -38,33 +33,19 @@ impl Cpu {
                 let b = self.read_reg(rt) as i32;
                 match a.checked_sub(b) {
                     Some(val) => self.write_reg(rd, val as u32),
-                    None => self.trigger_exception(Exception::ArithmeticOverflow, pending_branch),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow),
                 }
             }
             Instruction::SUBU { rs, rt, rd } => {
                 self.write_reg(rd, self.read_reg(rs).wrapping_sub(self.read_reg(rt)));
             }
             Instruction::ADDI { rs, rt, imm } => {
-                println!(
-                    "rs={} rt={} gprs[rs]={:08X}",
-                    rs, rt, self.gprs[rs as usize]
-                );
-                let a = self.read_reg(rs);
-                let b = imm as i16 as i32 as u32;
-                let b_i16 = imm as i16; // -30963
-                let b_i32 = b_i16 as i32; // -30963
-                let b_u32 = b_i32 as u32; // 0xFFFF870D
-                println!("b_i16={} b_i32={} b_u32={:08X}", b_i16, b_i32, b_u32);
-                println!(
-                    "ADDI rs={} rt={} imm=0x{:04X} (signed={}) a=0x{:08X} b=0x{:08X}",
-                    rs, rt, imm, imm as i16, a, b
-                );
-                let res = a.wrapping_add(b_u32);
-                self.write_reg(rt, res);
-                // match a.checked_add(b) {
-                //     Some(val) => self.write_reg(rt, val as u32),
-                //     None => self.trigger_exception(Exception::ArithmeticOverflow, pending_branch),
-                // }
+                let a = self.read_reg(rs) as i32;
+                let b = imm as i16 as i32;
+                match a.checked_add(b) {
+                    Some(val) => self.write_reg(rt, val as u32),
+                    None => self.trigger_exception(Exception::ArithmeticOverflow),
+                }
             }
             Instruction::ADDIU { rs, rt, imm } => {
                 let val = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
@@ -192,7 +173,7 @@ impl Cpu {
                     let val = mem.read_halfword(addr);
                     self.load_delay = Some((rt, val as i16 as i32 as u32));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataLoad, pending_branch);
+                    self.trigger_exception(Exception::AddressErrorDataLoad);
                 }
             }
             Instruction::LHU { rs, rt, imm } => {
@@ -201,7 +182,7 @@ impl Cpu {
                     let val = mem.read_halfword(addr);
                     self.load_delay = Some((rt, val as u32));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataLoad, pending_branch);
+                    self.trigger_exception(Exception::AddressErrorDataLoad);
                 }
             }
             Instruction::LW { rs, rt, imm } => {
@@ -210,7 +191,7 @@ impl Cpu {
                     let val = mem.read_word(addr);
                     self.load_delay = Some((rt, val));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataLoad, pending_branch);
+                    self.trigger_exception(Exception::AddressErrorDataLoad);
                 }
             }
             Instruction::SB { rs, rt, imm } => {
@@ -222,7 +203,7 @@ impl Cpu {
                 if addr.is_multiple_of(2) {
                     mem.write_halfword(addr, self.read_reg(rt) as u16);
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataStore, pending_branch);
+                    self.trigger_exception(Exception::AddressErrorDataStore);
                 }
             }
             Instruction::SW { rs, rt, imm } => {
@@ -230,7 +211,7 @@ impl Cpu {
                 if addr.is_multiple_of(4) {
                     mem.write_word(addr, self.read_reg(rt));
                 } else {
-                    self.trigger_exception(Exception::AddressErrorDataStore, pending_branch);
+                    self.trigger_exception(Exception::AddressErrorDataStore);
                 }
             }
             Instruction::LWR { rs, rt, imm } => {
@@ -368,7 +349,7 @@ impl Cpu {
 
             Instruction::COP { n, instr } => {
                 if n != 0 && n != 2 {
-                    self.trigger_exception(Exception::CoprocessorUnusable, pending_branch);
+                    self.trigger_exception(Exception::CoprocessorUnusable);
                     return;
                 }
 
@@ -401,16 +382,14 @@ impl Cpu {
                     }
                     CopInstruction::BCF { imm: _ } => {
                         match n {
-                            0 => self
-                                .trigger_exception(Exception::CoprocessorUnusable, pending_branch),
+                            0 => self.trigger_exception(Exception::CoprocessorUnusable),
                             2 => {}
                             _ => unreachable!(),
                         };
                     }
                     CopInstruction::BCT { imm: _ } => {
                         match n {
-                            0 => self
-                                .trigger_exception(Exception::CoprocessorUnusable, pending_branch),
+                            0 => self.trigger_exception(Exception::CoprocessorUnusable),
                             2 => {}
                             _ => unreachable!(),
                         };
@@ -426,16 +405,10 @@ impl Cpu {
                 }
             }
 
-            Instruction::SYSCALL { comment: _ } => {
-                self.trigger_exception(Exception::SystemCall, pending_branch)
-            }
-            Instruction::BREAK { comment: _ } => {
-                self.trigger_exception(Exception::Breakpoint, pending_branch)
-            }
+            Instruction::SYSCALL { comment: _ } => self.trigger_exception(Exception::SystemCall),
+            Instruction::BREAK { comment: _ } => self.trigger_exception(Exception::Breakpoint),
 
-            Instruction::ILLEGAL => {
-                self.trigger_exception(Exception::ReservedInstruction, pending_branch)
-            }
+            Instruction::ILLEGAL => self.trigger_exception(Exception::ReservedInstruction),
             _ => todo!(),
         }
     }
