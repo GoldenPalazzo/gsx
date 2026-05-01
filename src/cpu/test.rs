@@ -206,10 +206,16 @@ mod testing {
                     4 => mem.read_word(cycle.addr),
                     _ => continue,
                 };
+                let expected = match cycle.sz {
+                    1 => cycle.val & 0xFF,
+                    2 => cycle.val & 0xFFFF,
+                    4 => cycle.val,
+                    _ => continue,
+                };
                 check!(
                     format!("mem[{:08X}]", cycle.addr),
                     format!("{:08X}", got),
-                    format!("{:08X}", cycle.val)
+                    format!("{:08X}", expected)
                 );
             }
         }
