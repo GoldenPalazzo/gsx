@@ -39,7 +39,7 @@ fn get_secondary(opcode: u32) -> u8 {
     (opcode & 0x3f).try_into().unwrap()
 }
 
-#[allow(clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms, dead_code)]
 #[derive(Debug)]
 pub enum CopInstruction {
     MFC { rt: u8, rd: u8 },
@@ -53,7 +53,7 @@ pub enum CopInstruction {
     COP { cmd: u32 },
 }
 
-#[allow(clippy::upper_case_acronyms)]
+#[allow(clippy::upper_case_acronyms, dead_code)]
 #[derive(Debug)]
 pub enum Instruction {
     BLTZ { rs: u8, imm: u16 },

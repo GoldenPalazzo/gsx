@@ -1,13 +1,15 @@
 mod coprocessor;
 mod instrs;
+mod test;
 
 use std::fmt;
 
 use coprocessor::{Cop0, Coprocessor, Gte};
 
-use super::memory::MemoryBus;
+use super::memory::BusInterface;
 use instrs::{CopInstruction, Instruction};
 
+#[allow(dead_code)]
 #[derive(Debug)]
 #[repr(u8)]
 enum Exception {
@@ -38,6 +40,7 @@ pub struct Cpu {
     gte: Gte,
 
     load_delay: Option<(u8, u32)>,
+    last_written_reg: Option<u8>,
     jump_delay: Option<u32>,
     exception_pc: Option<u32>,
 }
@@ -64,6 +67,7 @@ impl Cpu {
             gte: Gte::new(),
 
             load_delay: None,
+            last_written_reg: None,
             jump_delay: None,
             exception_pc: None,
         };
@@ -73,8 +77,12 @@ impl Cpu {
         n
     }
 
-    pub fn step(&mut self, mem: &mut MemoryBus) {
+    pub fn step<T: BusInterface>(&mut self, mem: &mut T) {
         assert!(self.pc.is_multiple_of(4), "PC is unaligned!!!");
+        let opcode = mem.read_word(self.pc);
+        let disasm = Instruction::decode(opcode);
+        print!("{}", self);
+        println!("0x{:08X}: {:08X} -> {:?}", self.pc, opcode, disasm);
         let pending_load = self.load_delay.take();
         let pending_jump = self.jump_delay.take();
 
@@ -84,18 +92,18 @@ impl Cpu {
         //     mem[self.pc.wrapping_add(2) as usize],
         //     mem[self.pc.wrapping_add(3) as usize],
         // ]);
-        let opcode = mem.read_word(self.pc);
-        let disasm = Instruction::decode(opcode);
-        print!("{}", self);
-        println!("0x{:08X}: {:08X} -> {:?}\n", self.pc, opcode, disasm);
+
         self.execute(disasm, mem, pending_jump.is_some());
+        let last_reg = self.last_written_reg.take().unwrap_or(u8::MAX);
 
         if let Some(epc) = self.exception_pc.take() {
             self.pc = epc;
             return;
         }
 
-        if let Some((reg, val)) = pending_load {
+        if let Some((reg, val)) = pending_load
+            && reg != last_reg
+        {
             self.write_reg(reg, val);
         }
 
@@ -113,10 +121,11 @@ impl Cpu {
     fn write_reg(&mut self, idx: u8, val: u32) {
         if idx != 0 {
             self.gprs[idx as usize] = val;
+            self.last_written_reg = Some(idx);
         }
     }
 
-    fn execute(&mut self, opcode: Instruction, mem: &mut MemoryBus, load_delay: bool) {
+    fn execute<T: BusInterface>(&mut self, opcode: Instruction, mem: &mut T, load_delay: bool) {
         match opcode {
             Instruction::ADD { rs, rt, rd } => {
                 let a = self.read_reg(rs) as i32;
@@ -141,12 +150,26 @@ impl Cpu {
                 self.write_reg(rd, self.read_reg(rs).wrapping_sub(self.read_reg(rt)));
             }
             Instruction::ADDI { rs, rt, imm } => {
-                let a = self.read_reg(rs) as i32;
-                let b = imm as i16 as i32;
-                match a.checked_add(b) {
-                    Some(val) => self.write_reg(rt, val as u32),
-                    None => self.trigger_exception(Exception::ArithmeticOverflow, load_delay),
-                }
+                println!(
+                    "rs={} rt={} gprs[rs]={:08X}",
+                    rs, rt, self.gprs[rs as usize]
+                );
+                let a = self.read_reg(rs);
+                let b = imm as i16 as i32 as u32;
+                let b_i16 = imm as i16; // -30963
+                let b_i32 = b_i16 as i32; // -30963
+                let b_u32 = b_i32 as u32; // 0xFFFF870D
+                println!("b_i16={} b_i32={} b_u32={:08X}", b_i16, b_i32, b_u32);
+                println!(
+                    "ADDI rs={} rt={} imm=0x{:04X} (signed={}) a=0x{:08X} b=0x{:08X}",
+                    rs, rt, imm, imm as i16, a, b
+                );
+                let res = a.wrapping_add(b_u32);
+                self.write_reg(rt, res);
+                // match a.checked_add(b) {
+                //     Some(val) => self.write_reg(rt, val as u32),
+                //     None => self.trigger_exception(Exception::ArithmeticOverflow, load_delay),
+                // }
             }
             Instruction::ADDIU { rs, rt, imm } => {
                 let val = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
@@ -469,14 +492,14 @@ impl Cpu {
                         let addr = self.read_reg(rs).wrapping_add(imm as i16 as u32);
                         mem.write_word(addr, val);
                     }
-                    CopInstruction::BCF { imm } => {
+                    CopInstruction::BCF { imm: _ } => {
                         match n {
                             0 => self.trigger_exception(Exception::CoprocessorUnusable, load_delay),
                             2 => {}
                             _ => unreachable!(),
                         };
                     }
-                    CopInstruction::BCT { imm } => {
+                    CopInstruction::BCT { imm: _ } => {
                         match n {
                             0 => self.trigger_exception(Exception::CoprocessorUnusable, load_delay),
                             2 => {}
@@ -491,15 +514,13 @@ impl Cpu {
                         }
                         // Cop0 only
                     }
-
-                    _ => {}
                 }
             }
 
-            Instruction::SYSCALL { comment } => {
+            Instruction::SYSCALL { comment: _ } => {
                 self.trigger_exception(Exception::SystemCall, load_delay)
             }
-            Instruction::BREAK { comment } => {
+            Instruction::BREAK { comment: _ } => {
                 self.trigger_exception(Exception::Breakpoint, load_delay)
             }
 
