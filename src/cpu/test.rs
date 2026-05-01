@@ -130,6 +130,7 @@ mod testing {
         } else {
             None
         };
+        cpu.in_branch_delay = state.delay.load.slot;
         cpu.taken_branch = if state.delay.load.take {
             Some(state.delay.load.target)
         } else {
