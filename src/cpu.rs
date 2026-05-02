@@ -39,6 +39,8 @@ pub struct Cpu {
 
     curr_opcode: u32,
     load_delay: Option<(u8, u32)>,
+    pending_load: Option<(u8, u32)>,
+
     last_written_reg: Option<u8>,
     taken_branch: Option<u32>,
     in_branch_delay: bool, // necessary for cop0r13 bit 30
@@ -58,6 +60,8 @@ impl Cpu {
 
             curr_opcode: 0,
             load_delay: None,
+            pending_load: None,
+
             last_written_reg: None,
             taken_branch: None,
             in_branch_delay: false,
@@ -82,7 +86,7 @@ impl Cpu {
             self.pc, self.curr_opcode, disasm
         );
 
-        let pending_load = self.load_delay.take();
+        self.pending_load = self.load_delay.take();
         let pending_branch = self.taken_branch;
         let old_branch_delay = self.in_branch_delay;
 
@@ -110,7 +114,7 @@ impl Cpu {
             self.pc = epc;
         }
 
-        if let Some((reg, val)) = pending_load
+        if let Some((reg, val)) = self.pending_load.take()
             && reg != last_reg
         {
             println!("Applying load delay slot! r{} val={:08X}", reg, val);

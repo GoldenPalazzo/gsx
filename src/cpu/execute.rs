@@ -218,21 +218,13 @@ impl Cpu {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
                 let aligned = addr & !3;
                 let mem_word = mem.read_word(aligned);
-                let cur = self.read_reg(rt);
-                let val = match addr & 3 {
-                    0 => mem_word,
-                    1 => (cur & 0xff00_0000) | (mem_word >> 8),
-                    2 => (cur & 0xffff_0000) | (mem_word >> 16),
-                    3 => (cur & 0xffff_ff00) | (mem_word >> 24),
-                    _ => unreachable!(),
+                let cur = if let Some(del) = self.pending_load
+                    && del.0 == rt
+                {
+                    del.1
+                } else {
+                    self.read_reg(rt)
                 };
-                self.load_delay = Some((rt, val))
-            }
-            Instruction::LWL { rs, rt, imm } => {
-                let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
-                let aligned = addr & !3;
-                let mem_word = mem.read_word(aligned);
-                let cur = self.read_reg(rt);
                 let val = match addr & 3 {
                     0 => (cur & 0x00ff_ffff) | (mem_word << 24),
                     1 => (cur & 0x0000_ffff) | (mem_word << 16),
@@ -240,7 +232,35 @@ impl Cpu {
                     3 => mem_word,
                     _ => unreachable!(),
                 };
-                self.load_delay = Some((rt, val));
+                let val = match addr & 3 {
+                    0 => mem_word,
+                    1 => (cur & 0xff00_0000) | (mem_word >> 8),
+                    2 => (cur & 0xffff_0000) | (mem_word >> 16),
+                    3 => (cur & 0xffff_ff00) | (mem_word >> 24),
+                    _ => unreachable!(),
+                };
+                self.write_load_delay(rt, val);
+            }
+            Instruction::LWL { rs, rt, imm } => {
+                let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
+                let aligned = addr & !3;
+                let mem_word = mem.read_word(aligned);
+
+                let cur = if let Some(del) = self.pending_load
+                    && del.0 == rt
+                {
+                    del.1
+                } else {
+                    self.read_reg(rt)
+                };
+                let val = match addr & 3 {
+                    0 => (cur & 0x00ff_ffff) | (mem_word << 24),
+                    1 => (cur & 0x0000_ffff) | (mem_word << 16),
+                    2 => (cur & 0x0000_00ff) | (mem_word << 8),
+                    3 => mem_word,
+                    _ => unreachable!(),
+                };
+                self.write_load_delay(rt, val);
             }
             Instruction::SWR { rs, rt, imm } => {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
