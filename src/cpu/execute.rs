@@ -340,7 +340,11 @@ impl Cpu {
             }
             Instruction::BLTZAL { rs, imm } => {
                 self.in_branch_delay = true;
-                self.write_reg(Self::RETURN_ADDR, self.pc.wrapping_add(8));
+                let ra = self
+                    .taken_branch
+                    .unwrap_or(self.pc.wrapping_add(4))
+                    .wrapping_add(4);
+                self.write_reg(Self::RETURN_ADDR, ra);
                 if (self.read_reg(rs) as i32) < 0 {
                     let off = (imm as i16 as i32 * 4) as u32;
                     self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))
@@ -348,7 +352,11 @@ impl Cpu {
             }
             Instruction::BGEZAL { rs, imm } => {
                 self.in_branch_delay = true;
-                self.write_reg(Self::RETURN_ADDR, self.pc.wrapping_add(8));
+                let ra = self
+                    .taken_branch
+                    .unwrap_or(self.pc.wrapping_add(4))
+                    .wrapping_add(4);
+                self.write_reg(Self::RETURN_ADDR, ra);
                 if (self.read_reg(rs) as i32) >= 0 {
                     let off = (imm as i16 as i32 * 4) as u32;
                     self.taken_branch = Some(self.pc.wrapping_add(4).wrapping_add(off))

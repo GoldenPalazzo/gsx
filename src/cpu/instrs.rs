@@ -300,8 +300,19 @@ impl Instruction {
                 rs: get_rs(opcode),
                 imm: get_imm16(opcode),
             },
-            // TODO: untreated dupes
-            _ => Self::ILLEGAL,
+            rt => {
+                if rt & 0x01 == 0 {
+                    Self::BLTZ {
+                        rs: get_rs(opcode),
+                        imm: get_imm16(opcode),
+                    }
+                } else {
+                    Self::BGEZ {
+                        rs: get_rs(opcode),
+                        imm: get_imm16(opcode),
+                    }
+                }
+            }
         }
     }
 
