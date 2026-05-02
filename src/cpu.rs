@@ -37,6 +37,7 @@ pub struct Cpu {
     cop0: Cop0,
     gte: Gte,
 
+    curr_opcode: u32,
     load_delay: Option<(u8, u32)>,
     last_written_reg: Option<u8>,
     taken_branch: Option<u32>,
@@ -55,6 +56,7 @@ impl Cpu {
             cop0: Cop0::new(),
             gte: Gte::new(),
 
+            curr_opcode: 0,
             load_delay: None,
             last_written_reg: None,
             taken_branch: None,
@@ -71,11 +73,14 @@ impl Cpu {
         assert!(self.pc.is_multiple_of(4), "PC is unaligned!!!");
 
         // Decode
-        let opcode = mem.read_word(self.pc);
-        let disasm = Instruction::decode(opcode);
+        self.curr_opcode = mem.read_word(self.pc);
+        let disasm = Instruction::decode(self.curr_opcode);
 
         print!("{}", self);
-        println!("0x{:08X}: {:08X} -> {:?}", self.pc, opcode, disasm);
+        println!(
+            "0x{:08X}: {:08X} -> {:?}",
+            self.pc, self.curr_opcode, disasm
+        );
 
         let pending_load = self.load_delay.take();
         let pending_branch = self.taken_branch;
@@ -126,10 +131,16 @@ impl Cpu {
         }
     }
 
+    fn write_load_delay(&mut self, idx: u8, val: u32) {
+        self.load_delay = Some((idx, val));
+        self.last_written_reg = Some(idx);
+    }
+
     fn trigger_exception(&mut self, ex: Exception) {
         println!("Exception {:?} at PC {:08X}", ex, self.pc);
         let new_pc = self.cop0.handle_exception(
             ex,
+            self.curr_opcode,
             self.pc,
             self.in_branch_delay,
             self.taken_branch.is_some(),

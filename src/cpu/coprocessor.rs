@@ -26,6 +26,7 @@ impl Cop0 {
     pub fn handle_exception(
         &mut self,
         ex: Exception,
+        opcode: u32,
         pc: u32,
         in_delay: bool,
         pending_branch: bool,
@@ -34,8 +35,7 @@ impl Cop0 {
         if is_coprocessor {
             todo!("Not implemented CoprocessorUnusable mask (bit 28-29)");
         }
-        let ce = 0;
-
+        let ce = (opcode >> 26) & 0x3;
         self.regs[Self::EPC] = if in_delay { pc.wrapping_sub(4) } else { pc };
         self.regs[Self::CAUSE] = (self.regs[Self::CAUSE] & !0xf000_00ff)
             | ((ex as u32) << 2)

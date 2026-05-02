@@ -160,18 +160,18 @@ impl Cpu {
             Instruction::LB { rs, rt, imm } => {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
                 let val = mem.read_byte(addr);
-                self.load_delay = Some((rt, val as i8 as i32 as u32));
+                self.write_load_delay(rt, val as i8 as i32 as u32);
             }
             Instruction::LBU { rs, rt, imm } => {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
                 let val = mem.read_byte(addr);
-                self.load_delay = Some((rt, val as u32));
+                self.write_load_delay(rt, val as u32);
             }
             Instruction::LH { rs, rt, imm } => {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
                 if addr.is_multiple_of(2) {
                     let val = mem.read_halfword(addr);
-                    self.load_delay = Some((rt, val as i16 as i32 as u32));
+                    self.write_load_delay(rt, val as i16 as i32 as u32);
                 } else {
                     self.trigger_exception(Exception::AddressErrorDataLoad);
                 }
@@ -180,7 +180,7 @@ impl Cpu {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
                 if addr.is_multiple_of(2) {
                     let val = mem.read_halfword(addr);
-                    self.load_delay = Some((rt, val as u32));
+                    self.write_load_delay(rt, val as u32);
                 } else {
                     self.trigger_exception(Exception::AddressErrorDataLoad);
                 }
@@ -189,7 +189,7 @@ impl Cpu {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
                 if addr.is_multiple_of(4) {
                     let val = mem.read_word(addr);
-                    self.load_delay = Some((rt, val));
+                    self.write_load_delay(rt, val);
                 } else {
                     self.trigger_exception(Exception::AddressErrorDataLoad);
                 }
