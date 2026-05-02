@@ -323,6 +323,7 @@ mod testing {
     instr_test!(test_lwl, "LWL.json");
     instr_test!(test_lwr, "LWR.json");
     instr_test!(test_sb, "SB.json");
+    instr_test!(test_shl, "SHL.json");
     instr_test!(test_sw, "SW.json");
     instr_test!(test_swl, "SWL.json");
     instr_test!(test_swr, "SWR.json");
@@ -336,4 +337,8 @@ mod testing {
     instr_test!(test_bne, "BNE.json");
     instr_test!(test_blez, "BLEZ.json");
     instr_test!(test_bgtz, "BGTZ.json");
+    instr_test!(test_bcondz, "BCondZ.json");
+
+    instr_test!(test_break, "BREAK.json");
+    instr_test!(test_syscall, "SYSCALL.json");
 }
