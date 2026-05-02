@@ -5,6 +5,7 @@ mod testing {
     use crate::memory::BusInterface;
     use serde::Deserialize;
     use std::path::{Path, PathBuf};
+    use tracing::error;
 
     #[derive(Deserialize)]
     struct LoadDelay {
@@ -122,8 +123,8 @@ mod testing {
         cpu.pc = state.PC;
         cpu.hi = state.hi;
         cpu.lo = state.lo;
-        cpu.cop0.write_reg(13, state.CAUSE);
-        cpu.cop0.write_reg(14, state.EPC);
+        cpu.cop0.write_reg_unsafe(13, state.CAUSE);
+        cpu.cop0.write_reg_unsafe(14, state.EPC);
 
         cpu.load_delay = if state.delay.branch.target >= 0 {
             Some((state.delay.branch.target as u8, state.delay.branch.val))
@@ -245,9 +246,9 @@ mod testing {
                 passed += 1;
             } else {
                 failed += 1;
-                eprintln!("FAIL: {}", test.name);
+                error!("FAIL: {}", test.name);
                 for m in &mismatches {
-                    eprintln!("  {} => got {}, expected {}", m.field, m.got, m.expected);
+                    error!("  {} => got {}, expected {}", m.field, m.got, m.expected);
                 }
             }
         }
@@ -265,6 +266,10 @@ mod testing {
         ($name:ident, $file:literal) => {
             #[test]
             fn $name() {
+                tracing_subscriber::fmt()
+                    .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+                    .try_init();
+
                 let path = tests_dir().join($file);
                 if !path.exists() {
                     panic!("{}: file not found", $file);

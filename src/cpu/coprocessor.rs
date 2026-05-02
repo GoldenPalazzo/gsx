@@ -71,6 +71,13 @@ impl Cop0 {
             false => 0x80000080,
         }
     }
+
+    #[cfg(test)]
+    pub fn write_reg_unsafe(&mut self, reg: u8, val: u32) {
+        if reg < 64 {
+            self.regs[reg as usize] = val;
+        }
+    }
 }
 
 impl Coprocessor for Cop0 {
@@ -82,8 +89,13 @@ impl Coprocessor for Cop0 {
     }
 
     fn write_reg(&mut self, reg: u8, val: u32) {
-        if let 0..=63 = reg {
-            self.regs[reg as usize] = val
+        match reg as usize {
+            Self::SSR => self.regs[Self::SSR] = val & 0xF27F_FFFF,
+            Self::CAUSE => {
+                self.regs[Self::CAUSE] = (self.regs[Self::CAUSE] & (!0x300)) | (val & 0x300)
+            }
+            5 | 7 | 9 | 11 => self.regs[reg as usize] = val,
+            _ => {}
         }
     }
     fn exec(&mut self, cmd: u32) {
