@@ -48,6 +48,11 @@ impl Cop0 {
     }
 
     #[inline(always)]
+    pub fn is_cache_isolated(&self) -> bool {
+        (self.regs[Self::SSR] & 0x10000) != 0
+    }
+
+    #[inline(always)]
     fn push_iec_kuc(&mut self, kuc_iec: u32) {
         let new_enable = ((self.regs[Self::SSR] & 0xf) << 2) | (kuc_iec & 0x3);
         self.regs[Self::SSR] = (self.regs[Self::SSR] & 0xffff_ff00) | new_enable;

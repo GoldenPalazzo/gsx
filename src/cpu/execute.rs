@@ -1,3 +1,5 @@
+use tracing::trace;
+
 use super::coprocessor::Coprocessor;
 use super::instrs::{CopInstruction, Instruction};
 use crate::cpu::{Cpu, Exception};
@@ -196,12 +198,20 @@ impl Cpu {
             }
             Instruction::SB { rs, rt, imm } => {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
-                mem.write_byte(addr, self.read_reg(rt) as u8);
+                if !self.cop0.is_cache_isolated() {
+                    mem.write_byte(addr, self.read_reg(rt) as u8);
+                } else {
+                    trace!("Ignored write: cache isolated");
+                }
             }
             Instruction::SH { rs, rt, imm } => {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
                 if addr.is_multiple_of(2) {
-                    mem.write_halfword(addr, self.read_reg(rt) as u16);
+                    if !self.cop0.is_cache_isolated() {
+                        mem.write_halfword(addr, self.read_reg(rt) as u16);
+                    } else {
+                        trace!("Ignored write: cache isolated");
+                    }
                 } else {
                     self.trigger_exception(Exception::AddressErrorDataStore);
                 }
@@ -209,7 +219,11 @@ impl Cpu {
             Instruction::SW { rs, rt, imm } => {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
                 if addr.is_multiple_of(4) {
-                    mem.write_word(addr, self.read_reg(rt));
+                    if !self.cop0.is_cache_isolated() {
+                        mem.write_word(addr, self.read_reg(rt));
+                    } else {
+                        trace!("Ignored write: cache isolated");
+                    }
                 } else {
                     self.trigger_exception(Exception::AddressErrorDataStore);
                 }
@@ -267,7 +281,11 @@ impl Cpu {
                     3 => (mem_word & 0x00ff_ffff) | (reg << 24),
                     _ => unreachable!(),
                 };
-                mem.write_word(aligned, val);
+                if !self.cop0.is_cache_isolated() {
+                    mem.write_word(aligned, val);
+                } else {
+                    trace!("Ignored write: cache isolated");
+                }
             }
             Instruction::SWL { rs, rt, imm } => {
                 let addr = self.read_reg(rs).wrapping_add(imm as i16 as i32 as u32);
@@ -281,7 +299,11 @@ impl Cpu {
                     3 => reg,
                     _ => unreachable!(),
                 };
-                mem.write_word(aligned, val);
+                if !self.cop0.is_cache_isolated() {
+                    mem.write_word(aligned, val);
+                } else {
+                    trace!("Ignored write: cache isolated");
+                }
             }
             Instruction::J { imm } => {
                 self.in_branch_delay = true;
@@ -407,7 +429,12 @@ impl Cpu {
                     CopInstruction::SWC { rs, rt, imm } => {
                         let val = cop_dispatch!(self, n, read_reg(rt));
                         let addr = self.read_reg(rs).wrapping_add(imm as i16 as u32);
-                        mem.write_word(addr, val);
+
+                        if !self.cop0.is_cache_isolated() {
+                            mem.write_word(addr, val);
+                        } else {
+                            trace!("Ignored write: cache isolated");
+                        }
                     }
                     CopInstruction::BCF { imm: _ } => {
                         match n {
