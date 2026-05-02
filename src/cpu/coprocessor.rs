@@ -1,4 +1,5 @@
 use crate::cpu::Exception;
+use tracing::warn;
 
 pub trait Coprocessor {
     // fn mfc(&self, rd: u8) -> u32;
@@ -121,7 +122,7 @@ impl Coprocessor for Gte {
         let mvma_mul_vec = (cmd >> 15) & 3;
         let mvma_mul_matr = (cmd >> 17) & 3;
         let shift_fac = (cmd & (1 << 19)) != 0;
-        println!(
+        warn!(
             "Silent stub COP2 {:025b} {} {} {} {} {} {}",
             cmd, real_cmd, saturate, mvma_trans, mvma_mul_vec, mvma_mul_matr, shift_fac
         );

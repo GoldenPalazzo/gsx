@@ -1,3 +1,5 @@
+use tracing::{debug, info, warn};
+
 const RAM_BEGIN: u32 = 0;
 const RAM_SIZE: u32 = 2 * 1024 * 1024;
 const RAM_END: u32 = RAM_BEGIN + RAM_SIZE - 1;
@@ -74,7 +76,7 @@ impl BusInterface for MemoryBus {
             BIOS_BEGIN..=BIOS_END => {}
             EXP1_BEGIN..=EXP1_END => self.exp1_ram[(addr - EXP1_BEGIN) as usize] = val,
             SCRATCH_BEGIN..=SCRATCH_END => self.scratchpad[(addr - SCRATCH_BEGIN) as usize] = val,
-            IOPORTS_BEGIN..=IOPORTS_END => {}
+            IOPORTS_BEGIN..=IOPORTS_END => warn!("IO write {:08X} = {:08X}", addr, val),
             CACHECTL_BEGIN..=CACHECTL_END => {}
             _ => todo!("Address {:08X} not mapped yet", addr),
         }
@@ -123,7 +125,7 @@ impl MemoryBus {
     }
 
     pub fn load_psexe(&mut self, exe: &[u8]) -> (u32, u32, u32) {
-        println!("Loading PS-X EXE...");
+        debug!("Loading PS-X EXE...");
         let initial_pc = u32::from_le_bytes(exe[0x10..0x14].try_into().unwrap());
         let initial_r28 = u32::from_le_bytes(exe[0x14..0x18].try_into().unwrap());
         let dest_addr = u32::from_le_bytes(exe[0x18..0x1c].try_into().unwrap());
@@ -136,7 +138,7 @@ impl MemoryBus {
             let addr = dest_addr.wrapping_add(byte);
             self.write_byte(addr, exe[0x800 + byte as usize]);
         }
-        println!(
+        debug!(
             "Loaded {} bytes ({:08X} to {:08X})",
             filesize,
             dest_addr,
@@ -147,13 +149,13 @@ impl MemoryBus {
             let addr = memfill_start.wrapping_add(byte);
             self.write_byte(addr, 0);
         }
-        println!(
+        debug!(
             "Cleaned {} bytes ({:08X} to {:08X})",
             memfill_size,
             memfill_start,
             memfill_start.wrapping_add(memfill_size)
         );
-        println!(
+        debug!(
             "Loaded PS-X EXE\nPC: {:08X} R28: {:08X} R29: {:08X} R30: {:08X}",
             initial_pc, initial_r28, initial_r29_r30, initial_r29_r30
         );

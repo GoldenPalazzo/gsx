@@ -8,6 +8,7 @@ use std::fmt;
 use super::memory::BusInterface;
 use coprocessor::{Cop0, Coprocessor, Gte};
 use instrs::{CopInstruction, Instruction};
+use tracing::{debug, info, trace};
 
 #[allow(dead_code)]
 #[derive(Debug, PartialEq)]
@@ -80,8 +81,8 @@ impl Cpu {
         self.curr_opcode = mem.read_word(self.pc);
         let disasm = Instruction::decode(self.curr_opcode);
 
-        print!("{}", self);
-        println!(
+        trace!("{}", self);
+        debug!(
             "0x{:08X}: {:08X} -> {:?}",
             self.pc, self.curr_opcode, disasm
         );
@@ -92,7 +93,7 @@ impl Cpu {
 
         self.execute(disasm, mem);
 
-        println!(
+        debug!(
             "old_branch_delay={} new_branch_delay={}",
             old_branch_delay, self.in_branch_delay
         );
@@ -117,7 +118,7 @@ impl Cpu {
         if let Some((reg, val)) = self.pending_load.take()
             && reg != last_reg
         {
-            println!("Applying load delay slot! r{} val={:08X}", reg, val);
+            trace!("Applying load delay slot! r{} val={:08X}", reg, val);
             if reg != 0 {
                 self.gprs[reg as usize] = val;
             }
@@ -141,7 +142,7 @@ impl Cpu {
     }
 
     fn trigger_exception(&mut self, ex: Exception) {
-        println!("Exception {:?} at PC {:08X}", ex, self.pc);
+        debug!("Exception {:?} at PC {:08X}", ex, self.pc);
         let new_pc = self.cop0.handle_exception(
             ex,
             self.curr_opcode,
